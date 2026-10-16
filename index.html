@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#14100c">
+<meta name="description" content="MAMI — a low-poly 3D canteen rush game built with three.js.">
+<title>MAMI — Naija buka rush</title>
+
+<!-- three.js is vendored locally: no CDN, no build step. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
