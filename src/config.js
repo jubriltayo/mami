@@ -10,14 +10,24 @@
 // to send a score to start.ng.
 //   ?test=1   crush patience so a whole round plays out fast
 //   ?debug=1  expose window.__mami for scripted browser tests (implies test)
+//   ?debug=1  alone (explicitDebug) is what exposes the debug hook and the
+//             shuffle button; ?test=1 by itself does not
 const urlFlags = new URLSearchParams(window.location.search);
 const TEST_MODE = urlFlags.get('test') === '1';
-const DEBUG_MODE = TEST_MODE || urlFlags.get('debug') === '1';
+const DEBUG_PARAM = urlFlags.get('debug') === '1';
+// debugMode is the "this is an automated run" flag: ?test=1 implies it, so a
+// test run can never send a score to start.ng.
+// explicitDebug is stricter — it is ONLY true when ?debug=1 is literally in the
+// address. That is what exposes window.__mami and the shuffle button, so
+// ?test=1 on its own stays a plain "play a round fast" mode with no debug
+// surface hanging off it.
+const DEBUG_MODE = TEST_MODE || DEBUG_PARAM;
 
 export const CONFIG = {
   // Neither is ever on in normal play.
   testMode: TEST_MODE,
   debugMode: DEBUG_MODE,
+  explicitDebug: DEBUG_PARAM,
 
   // ---------------------------------------------------------------- renderer
   renderer: {

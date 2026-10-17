@@ -640,7 +640,7 @@ export function initUI(handlers) {
       signInBtn.hidden = !user.isGuest || guestByChoice;
       // Shuffling your look is a DEBUG affordance only. In a real game the server is
       // the player's own start.ng character, so there is nothing to shuffle.
-      shuffleBtn.hidden = !CONFIG.debugMode;
+      shuffleBtn.hidden = !CONFIG.explicitDebug;
     },
 
     /**

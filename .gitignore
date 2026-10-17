@@ -1,0 +1,29 @@
+# --- things that must never be committed -----------------------------------
+#
+# The test harness (mami-smoke.js) lives outside this repo, in a temp folder, so
+# there is nothing to ignore for it here. These are for the case where someone
+# runs it from inside the project instead.
+
+# Screenshot output and the throwaway Chrome profile the harness creates.
+shots/
+profile/
+
+# Never push dependencies: start.ng never runs npm, and the game is plain ES
+# modules with three.js vendored in vendor/.
+node_modules/
+package-lock.json
+
+# OS junk.
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- deliberately NOT ignored ----------------------------------------------
+#
+# vendor/three.module.min.js  three.js is vendored, not loaded from a CDN.
+#                            start.ng warns about external scripts, so this file
+#                            has to be committed.
+# cover.png                  start.ng picks this up as the game's card picture.
+# index.html / src/*.js      the game itself.
+#
+# There is no pattern here that can match those four, and none should be added.

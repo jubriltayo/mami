@@ -830,11 +830,14 @@ startUserService();
 verifyDishPickups(world.pickups);
 
 // ---------------------------------------------------------------------------
-// Test/debug hook (?test=1 / ?debug=1): exposes live state so the game can be
-// driven and asserted from an automated browser test. Never present in normal
-// play.
+// Debug hook: exposes live state so the game can be driven and asserted from an
+// automated browser test.
+//
+// Gated on explicitDebug, which is ONLY true when ?debug=1 is literally in the
+// address. ?test=1 alone does NOT expose it: test mode is a "play a round fast"
+// flag, and there is no reason a test run should also carry a debug surface.
 // ---------------------------------------------------------------------------
-if (CONFIG.debugMode) {
+if (CONFIG.explicitDebug) {
   window.__mami = {
     game,
     config: C,

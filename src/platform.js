@@ -227,9 +227,15 @@ function scoresAllowed() {
   return ON_START_NG && !CONFIG.testMode && !CONFIG.debugMode;
 }
 
+// start.ng refuses a score that is not a whole number from 0 to 1,000,000,000,
+// so clamp and round HERE rather than trusting the caller to have been tidy.
+// A malformed stat would otherwise throw the whole run away.
+const STAT_MAX = 1_000_000_000;
+
 /**
  * Save a finished run. `stats` must be exactly the columns in startng.json,
- * each a whole number.
+ * each a whole number in [0, 1e9]. Anything missing or unparseable is dropped,
+ * and if that leaves nothing to send the call is skipped entirely.
  *
  * Never blocks gameplay: this resolves to null on any failure, and callers are
  * expected to treat that as "nothing to show" rather than an error.
@@ -238,8 +244,17 @@ function scoresAllowed() {
  */
 export async function saveScore(stats) {
   if (!scoresAllowed() || user?.isGuest) return null;
+
+  const clean = {};
+  for (const [key, value] of Object.entries(stats || {})) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) continue;
+    clean[key] = Math.min(STAT_MAX, Math.max(0, Math.round(n)));
+  }
+  if (!Object.keys(clean).length) return null;
+
   const reply = await askStartNg(
-    { type: 'startng:score', stats },
+    { type: 'startng:score', stats: clean },
     'startng:scoreSaved',
   );
   if (!reply || reply.ok !== true || !reply.result) return null;
@@ -254,11 +269,13 @@ export async function saveScore(stats) {
 
 /**
  * Read the top of the leaderboard. Works for guests too.
+ * `limit` is 1 to 50 per start.ng; 10 (the default) is what the game asks for.
  * @returns {Promise<Array<object>|null>} null if start.ng did not answer.
  */
 export async function fetchLeaderboard(limit = 10) {
+  const want = Math.min(50, Math.max(1, Math.round(Number(limit) || 10)));
   const reply = await askStartNg(
-    { type: 'startng:leaderboard', limit },
+    { type: 'startng:leaderboard', limit: want },
     'startng:leaderboardData',
   );
   if (!reply || reply.ok !== true || !Array.isArray(reply.entries)) return null;

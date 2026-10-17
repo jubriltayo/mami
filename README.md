@@ -163,8 +163,11 @@ adds that when someone chooses "play as a guest" — the sign-in button and the
 end-of-round invitation are both hidden, because they already answered.
 
 **Scores are never sent from `?test=1` or `?debug=1`.** Those are automated
-runs; writing to a real player's leaderboard from a test would be wrong. The
-same two flags are also the only thing that exposes `window.__mami`.
+runs; writing to a real player's leaderboard from a test would be wrong. Each
+stat is also rounded and clamped to 0–1,000,000,000 before sending, because
+start.ng refuses anything that is not a whole number in that range.
+
+The only thing that exposes `window.__mami` is a literal `?debug=1`.
 
 ### startng.json — the leaderboard columns
 
@@ -189,25 +192,68 @@ highlights the player's own row.
 
 ### What I could not test locally
 
-Honest list — none of this ran against a real start.ng account here:
+Honest list — none of this ran against a real signed-in start.ng account:
 
 - **Sign-in.** I could not sign in, so the real round trip through
   `https://start.ng/?return_to=…` and back has never executed.
-- **A real `startng:whoami` reply.** There is no such thing on localhost, so the
-  "signed-in player" branch — the chip showing `@account`, hiding Sign in,
-  hiding Shuffle my look — was verified by reading the code, not by seeing it.
+- **A real signed-in `startng:whoami` reply.** The "signed-in player" branch —
+  the chip showing `@account`, the HUD name, hiding Sign in, hiding Shuffle my
+  look — was verified by reading the code, not by seeing it.
 - **Saving a score and getting a rank back.** `saveScore()` has never received a
-  real `startng:scoreSaved` reply.
-- **The leaderboard returning real entries.** It has only ever shown the
-  "not available here" path, and the row highlighting has never been exercised
-  against a real `player_id`.
-- **`startng.json` being accepted.** That check runs when the game is published,
-  which needs a public repo.
+  real `startng:scoreSaved` reply, so the rank line has never shown a real rank.
+- **The leaderboard returning real entries.** It has only ever taken the
+  "not available here" path, so the row highlighting has never met a real
+  `player_id`.
 
-The offline behaviour — guest look, no iframe, no errors, no score sent — **is**
-tested, and so is the guard that `?test=1` / `?debug=1` never send a score.
-Per the docs, all of this can only really be exercised once the game is live at
-`<name>.start.ng`.
+**What I did test.** Served from a faked `mami-startng-test.start.ng` origin
+(Chrome `--host-resolver-rules`), so the start.ng code path ran for real:
+
+- `hostname` ends in `.start.ng`, so the connect frame **is** created, pointing
+  at `https://start.ng/connect` — and off that origin it is never created at
+  all (0 iframes on localhost).
+- No signed-in player came back, and the game sat at **Guest / Not signed in**
+  with **zero console errors** — "no answer" behaved as "guest", not as a
+  failure.
+- The leaderboard button opened and degraded gracefully; the game still played.
+- `?test=1` sent no score, and `window.__mami` existed only under a literal
+  `?debug=1` (checked across `''`, `?test=1`, `?debug=1`, `?test=1&debug=1`,
+  `?guest`).
+
+Two guards could only be checked by reading the code, not by running them: the
+"never send a score under `?test=1`/`?debug=1`" rule on a **signed-in** player
+(as a guest, `saveScore()` returns early anyway), and `startng.json` being
+accepted, which only happens at publish time on a public repo.
+
+### Pre-publish state
+
+Checked against <https://start.ng/docs.md>. 14 files, 13 served, 1.32 MB.
+
+| Rule | State |
+| --- | --- |
+| `index.html` at the top of the repo, already built | yes — plain ES modules, no bundler, no `needs_build` risk |
+| Relative paths only | yes — `./src/main.js`, `./vendor/three.module.min.js` |
+| Served file types | yes — `html js json png`. `README.md` is `.md`, which is not on the served list, so start.ng skips it (expected) |
+| Size | 13 files / 1.32 MB (limits 2000 / 100 MB). Largest file 0.64 MB (limit 25 MB) |
+| `vendor/three.module.min.js` committed | yes — so there is no `external_script` warning |
+| No `http://` in a served file | yes |
+| No secrets | yes — nothing at all; the only storage is the local best score |
+| No password field | yes |
+| No redirect on open | yes — the only `location.href` is the start.ng sign-in, behind a click |
+| `cover.png` 16:10, ≥640×400, <2 MB | 1600×1000, 0.47 MB |
+| `startng.json` valid | 2 stats, legal keys, labels ≤30 chars, `order: highest`; and `main.js` sends exactly `{ coins, served }` |
+| Score values whole numbers 0–1e9 | clamped and rounded in `platform.js` before sending |
+| Leaderboard `limit` 1–50 | clamped in `platform.js` |
+| `whoami` with `e.origin` checked | yes, plus `e.source` and a `requestId` |
+| Score never sent under `?test=1`/`?debug=1` | yes, and `window.__mami` needs a literal `?debug=1` |
+
+`.gitignore` covers `shots/`, `profile/`, `node_modules/` and OS junk. It has no
+pattern that can match `vendor/`, `cover.png`, `index.html` or `src/` — checked
+with `git check-ignore` rather than by reading it.
+
+Still to do by hand: push to a **public** repo, `POST https://api.start.ng/games/check`,
+then `POST https://api.start.ng/games/publish` and open the returned
+`approve_url`. Only start.ng can confirm the repo is public and that
+`startng.json` is accepted.
 
 ### End of round
 
@@ -224,12 +270,16 @@ Two URL query switches, neither of which is ever on in normal play:
 
 | Flag | What it does |
 | --- | --- |
-| `?test=1` | crushes patience and spaces arrivals so a whole round (3 storm-outs → game over → Play again) plays out in well under a minute. Also stops the game sending a score to start.ng. |
-| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test. Implied by `?test=1`. Also stops the game sending a score to start.ng, and is the only place the title screen's **Shuffle my look** button appears — in a real game your look is your start.ng character, so there is nothing to shuffle. |
+| `?test=1` | crushes patience and spaces arrivals so a whole round (3 storm-outs → game over → Play again) plays out in well under a minute. Also stops the game sending a score to start.ng. Does **not** expose the debug hook. |
+| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test, and shows the title screen's **Shuffle my look** button — in a real game your look is your start.ng character, so there is nothing to shuffle. Also stops the game sending a score to start.ng. |
 
-Both are read from the URL in `config.js`, not `main.js`: every module's body
-runs before `main.js`'s, so parsing them in `main.js` would leave `platform.js`
-believing it was allowed to send scores for its whole module body.
+`?test=1` alone deliberately does **not** expose `window.__mami`. Test mode is
+"play a round fast"; the debug hook is a separate thing that needs its own flag,
+so a test run does not silently carry a debug surface.
+
+All of the flags are read from the URL in `config.js`, not `main.js`: every
+module's body runs before `main.js`'s, so parsing them in `main.js` would leave
+`platform.js` believing it was allowed to send scores for its whole module body.
 
 At start-up the game also runs a dev check that logs to the console:
 
