@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { CONFIG } from './config.js';
+import { drawDishIcon } from './scene.js';
 
 const CSS = `
 :root {
@@ -94,17 +95,47 @@ canvas { display: block; width: 100%; height: 100%; }
 #hearts { font-size: clamp(17px, 4.4vw, 24px); letter-spacing: 4px; }
 .heart-off { opacity: .22; }
 
-/* carry stack readout */
-#carry { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+/* carry stack readout: icon + dish name per plate */
+#carry { display: flex; gap: 6px; align-items: stretch; margin-top: 8px; }
 .slot {
-  width: 34px; height: 34px; border-radius: 8px;
+  width: 74px; min-height: 52px; border-radius: 9px;
   border: 2px dashed rgba(253,243,216,.3);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 9px; font-weight: 800; letter-spacing: .02em;
-  color: #241505; opacity: .28;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; padding: 3px 2px;
+  color: #241505; opacity: .3; overflow: hidden;
 }
-.slot.filled { opacity: 1; border-style: solid; border-color: rgba(0,0,0,.35); }
+.slot.filled { opacity: 1; border-style: solid; border-color: rgba(0,0,0,.4); }
 .slot.top { box-shadow: 0 0 0 2px var(--gold); }
+.slot .icon {
+  width: 30px; height: 30px;
+  background-size: contain; background-repeat: no-repeat; background-position: center;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
+}
+.slot .nm {
+  font-size: 8px; font-weight: 900; letter-spacing: .01em; line-height: 1;
+  text-align: center; max-width: 100%; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+.slot.filled .icon { display: block; }
+.slot:not(.filled) .icon, .slot:not(.filled) .nm { display: none; }
+
+/* DROP button — always available, essential on touch */
+#drop {
+  pointer-events: auto; cursor: pointer;
+  font-family: var(--font); font-weight: 900;
+  font-size: 12px; letter-spacing: .12em;
+  color: #2a1a10; background: #e8dcc4;
+  border: 2px solid rgba(0,0,0,.35); border-radius: 9px;
+  padding: 7px 11px; margin-top: 8px;
+  display: flex; align-items: center; gap: 5px;
+  transition: transform .08s ease, opacity .15s ease;
+}
+#drop:active { transform: translateY(2px); }
+#drop.empty { opacity: .3; }
+#drop kbd {
+  font-family: var(--font); font-size: 9px; font-weight: 900;
+  background: rgba(0,0,0,.18); border-radius: 4px; padding: 2px 4px;
+}
 
 /* mute + hint */
 #mute {
@@ -216,6 +247,7 @@ function el(tag, attrs = {}, ...children) {
  * @param {function} handlers.onShuffle     shuffle-look button
  * @param {function} handlers.onRestart     play-again button
  * @param {function} handlers.onMute        mute button (returns new muted state)
+ * @param {function} handlers.onDrop        DROP button / binners the top plate
  */
 export function initUI(handlers) {
   const style = document.createElement('style');
@@ -251,12 +283,19 @@ export function initUI(handlers) {
   const levelStat = el('div', { class: 'hud-label', text: 'LEVEL 1' });
   const carry = el('div', { id: 'carry' });
 
+  // DROP button: binners the top plate. Always on screen so touch players get
+  // an explicit way to get rid of the plate they do not want.
+  const dropBtn = el('div', { id: 'drop', class: 'empty', title: 'Drop the top plate' },
+    el('span', { text: 'DROP' }), el('kbd', { text: 'Q' }));
+  dropBtn.addEventListener('click', () => handlers.onDrop());
+
   const left = el('div', { class: 'hud-panel' },
     el('div', {},
       el('div', { class: 'hud-label', text: 'Coins' }), coinsStat),
     el('div', {},
       el('div', { class: 'hud-label', text: 'Served' }), servedStat),
     carry,
+    dropBtn,
   );
   const muteBtn = el('div', { id: 'mute', title: 'Mute' }, ICONS.on);
   muteBtn.addEventListener('click', () => {
@@ -414,29 +453,33 @@ export function initUI(handlers) {
       }
     },
 
-    /** Draw the three carry slots. `stack` is bottom-first. */
+    /** Draw the carry slots: dish icon + dish name, bottom-first. */
     setCarry(stack) {
       if (slots.length !== CONFIG.player.carryLimit) {
         carry.textContent = '';
         slots = [];
         for (let i = 0; i < CONFIG.player.carryLimit; i++) {
-          const s = el('div', { class: 'slot' });
+          const s = el('div', { class: 'slot' },
+            el('div', { class: 'icon' }),
+            el('div', { class: 'nm' }));
           slots.push(s);
           carry.appendChild(s);
         }
       }
       slots.forEach((s, i) => {
         const dishId = stack[i];
-        if (!dishId) {
+        if (!dishId || !CONFIG.dishes[dishId]) {
           s.className = 'slot';
-          s.textContent = '';
           return;
         }
         const d = CONFIG.dishes[dishId];
         s.className = 'slot filled' + (i === stack.length - 1 ? ' top' : '');
-        s.textContent = d.short || d.label.slice(0, 6).toUpperCase();
         s.style.background = hexCss(d.color);
+        s.children[0].style.backgroundImage = `url(${dishIconDataUrl(dishId)})`;
+        s.children[1].textContent = d.short || d.name.slice(0, 7).toUpperCase();
       });
+      // grey the DROP button out when there is nothing to drop
+      dropBtn.className = stack.length ? '' : 'empty';
     },
 
     /** Contextual hint under the HUD. */
@@ -466,4 +509,21 @@ export function initUI(handlers) {
 function hexCss(value) {
   if (typeof value === 'string') return value;
   return '#' + (value >>> 0).toString(16).slice(-6).padStart(6, '0');
+}
+
+// Small square PNG of a dish icon, for the carry slots. Cached per dish.
+const iconUrlCache = new Map();
+function dishIconDataUrl(dishId, px = 64) {
+  if (iconUrlCache.has(dishId)) return iconUrlCache.get(dishId);
+  const d = CONFIG.dishes[dishId];
+  if (!d) return '';
+  const c = document.createElement('canvas');
+  c.width = px;
+  c.height = px;
+  const ctx = c.getContext('2d');
+  // pad the glyph so it does not touch the tile edges
+  drawDishIcon(ctx, d.icon, px / 2, px / 2, px * 0.46);
+  const url = c.toDataURL('image/png');
+  iconUrlCache.set(dishId, url);
+  return url;
 }

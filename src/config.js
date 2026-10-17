@@ -168,6 +168,7 @@ lights: {
     carrySpacing: 0.24,   // vertical gap between stacked plates
     carryTilt: 0.16,      // how much the stack leans when running
     carryLimit: 3,
+    reStackTime: 0.18,  // how long plates take to slide down after one is taken
   },
 
   // --------------------------------------------------------------- customers

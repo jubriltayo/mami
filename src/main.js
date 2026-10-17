@@ -10,7 +10,7 @@ import { CONFIG, unlockedDishIds, verifyDishPickups } from './config.js';
 import { getCurrentUser, onUserChange, setGuestStyle } from './platform.js';
 import {
   initScene, initSteam, render, update as updateScene, resize, world, shake,
-  setCameraPose, disposeAll, cylGeo, mat, updatePickupUnlocks, resetPickups,
+  setCameraPose, disposeAll, cylGeo, sphGeo, mat, updatePickupUnlocks, resetPickups,
 } from './scene.js';
 import { buildCharacter, randomStyle } from './character.js';
 import { createCustomerSystem, buildPlate } from './customers.js';
@@ -157,18 +157,51 @@ function popCoins(x, y, z, amount) {
   });
 }
 
+/** A little puff of dust where a plate was dropped or binned. */
+function poof(x, y, z, dishId) {
+  const group = new THREE.Group();
+  group.position.set(x, y, z);
+
+  const puffs = [];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const m = new THREE.Mesh(sphGeo(0.09, 5, 4),
+      new THREE.MeshLambertMaterial({
+        color: dishId && C.dishes[dishId] ? C.dishes[dishId].color : 0xf4efe2,
+        transparent: true, opacity: 0.75, depthWrite: false,
+      }));
+    m.position.set(Math.cos(a) * 0.18, 0, Math.sin(a) * 0.18);
+    group.add(m);
+    puffs.push(m);
+  }
+
+  roundRoot.add(group);
+  effects.push({ obj: group, life: 0.34, max: 0.34, puffs });
+}
+
 function updateEffects(dt) {
   for (let i = effects.length - 1; i >= 0; i--) {
     const e = effects[i];
     e.life -= dt;
     const t = 1 - Math.max(0, e.life) / e.max; // 0 -> 1
-    for (const coin of e.coins) {
-      coin.rotation.y += dt * 14;
-      coin.position.y += (1.6 - t * 2.4) * dt * 3;
-      coin.scale.setScalar(Math.max(0, 1 - t * 0.6));
+    if (e.puffs) {
+      // bin/drop puff: expand outward and fade
+      for (let k = 0; k < e.puffs.length; k++) {
+        const a = (k / e.puffs.length) * Math.PI * 2;
+        const m = e.puffs[k];
+        const r = 0.18 + t * 0.5;
+        m.position.set(Math.cos(a) * r, t * 0.35, Math.sin(a) * r);
+        m.material.opacity = 0.75 * (1 - t);
+      }
+    } else {
+      for (const coin of e.coins) {
+        coin.rotation.y += dt * 14;
+        coin.position.y += (1.6 - t * 2.4) * dt * 3;
+        coin.scale.setScalar(Math.max(0, 1 - t * 0.6));
+      }
+      e.text.position.y = 0.4 + t * 1.1;
+      e.text.scale.set(0.9 * (1 + t * 0.25), 0.45 * (1 + t * 0.25), 1);
     }
-    e.text.position.y = 0.4 + t * 1.1;
-    e.text.scale.set(0.9 * (1 + t * 0.25), 0.45 * (1 + t * 0.25), 1);
     if (e.life <= 0) {
       disposeAll(e.obj);
       effects.splice(i, 1);
@@ -204,6 +237,11 @@ ui = initUI({
   onMute() {
     audio.start();
     return audio.toggleMute();
+  },
+  onDrop() {
+    audio.start();
+    if (game.state !== STATE.PLAYING) return;
+    if (!dropTopPlate()) ui.toast('NOTHING TO DROP', 'bad');
   },
 });
 
@@ -281,6 +319,15 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     keys.add(e.code);
     audio.start();
+    return;
+  }
+  // DROP the top plate
+  if (e.code === 'KeyQ') {
+    e.preventDefault();
+    audio.start();
+    if (game.state === STATE.PLAYING) {
+      if (!dropTopPlate()) ui.toast('NOTHING TO DROP', 'bad');
+    }
   }
 });
 
@@ -337,14 +384,62 @@ function beginRound() {
 function clearCarry() {
   for (const plate of carry) carryRoot.remove(plate);
   carry = [];
+  restack(0);
   ui.setCarry([]);
 }
 
-/** Push the plate on top of the stack onto a customer. */
-function popTopPlate() {
-  const plate = carry.pop();
-  if (plate) carryRoot.remove(plate);
+/**
+ * Re-seat the plates at their slot heights.
+ * Pass a delay (seconds) to animate them sliding down into place after one
+ * leaves the stack — that is what sells "you pulled a plate out of the middle".
+ */
+function restack(delay = 0) {
+  carry.forEach((plate, i) => {
+    const targetY = i * C.player.carrySpacing;
+    if (delay > 0) {
+      plate.userData.slideFrom = plate.position.y;
+      plate.userData.slideTo = targetY;
+      plate.userData.slideT = 0;
+    } else {
+      plate.position.y = targetY;
+    }
+  });
+}
+
+/** Remove the plate at `index` (0 = bottom of the stack). */
+function removePlateAt(index) {
+  const plate = carry[index];
+  if (!plate) return null;
+  const dishId = plate.userData.dish;
+  carry.splice(index, 1);
+  carryRoot.remove(plate);
+  // the ones above it drop down to fill the gap
+  restack(C.player.reStackTime);
   ui.setCarry(carry.map((p) => p.userData.dish));
+  return dishId;
+}
+
+/** Pull the top plate off the stack (the DROP action / the bin). */
+function dropTopPlate() {
+  if (carry.length === 0) return false;
+  const plate = carry[carry.length - 1];
+  const p = player.group.position;
+  poof(p.x, C.player.carryHeight, p.z, plate.userData.dish);
+  carry.pop();
+  carryRoot.remove(plate);
+  restack(0);
+  ui.setCarry(carry.map((x) => x.userData.dish));
+  player.squash();
+  audio.sfx.bin();
+  return true;
+}
+
+/** True when the player is standing at the bin. */
+function atBin() {
+  const b = world.bin;
+  if (!b) return false;
+  const p = player.group.position;
+  return Math.hypot(p.x - b.x, p.z - b.z) < b.radius;
 }
 
 // ===========================================================================
@@ -422,6 +517,19 @@ function movePlayer(dt) {
   carryRoot.rotation.z = sway;
   carryRoot.rotation.x = -C.player.carryTilt * speed01 * 0.6 + (carry.length > 1 ? -0.06 : 0);
   carryRoot.visible = carry.length > 0;
+}
+
+/** Ease any plate that is re-stacking into its new slot. */
+function updateCarryAnimation(dt) {
+  for (const plate of carry) {
+    if (plate.userData.slideT === undefined || plate.userData.slideT >= 1) continue;
+    plate.userData.slideT = Math.min(1, plate.userData.slideT + dt / C.player.reStackTime);
+    const t = plate.userData.slideT;
+    // ease out, so it settles rather than stopping dead
+    const e = 1 - (1 - t) * (1 - t);
+    plate.position.y = plate.userData.slideFrom
+      + (plate.userData.slideTo - plate.userData.slideFrom) * e;
+  }
 }
 
 // ===========================================================================
@@ -580,6 +688,7 @@ function frame(now) {
     if (playing) {
       tick(dt);
       movePlayer(dt);
+      updateCarryAnimation(dt);
 
       // Unlock new pickup points as the round goes on (drops a "NEW" sign).
       for (const fresh of updatePickupUnlocks(game.elapsed)) {
@@ -589,11 +698,24 @@ function frame(now) {
 
       updatePickups();
 
-      // hand a plate to whoever we're standing next to
+      // Walking into the bin throws away the top plate.
+      if (world.bin) {
+        world.bin.cooldown = Math.max(0, world.bin.cooldown - dt);
+        if (carry.length > 0 && atBin() && world.bin.cooldown <= 0) {
+          dropTopPlate();
+          world.bin.cooldown = C.bin.cooldown;
+          ui.toast('BINNED', 'bad');
+        }
+      }
+
+      // Hand a plate to whoever we're standing next to. Any plate in the stack
+      // that matches will do, not just the top one.
       if (carry.length > 0) {
-        const top = carry[carry.length - 1].userData.dish;
-        const result = customers.deliver(player.group.position, top);
-        if (result && result.type === 'served') popTopPlate();
+        const stack = carry.map((p) => p.userData.dish);
+        const result = customers.deliver(player.group.position, stack);
+        if (result && result.type === 'served') {
+          removePlateAt(result.index);
+        }
       }
     } else {
       // title / game over: nobody is playing, so the player just stands there
@@ -668,6 +790,8 @@ if (CONFIG.testMode) {
           orderIndex: c.orderIndex,
           patience: +c.patience.toFixed(2),
           patienceMax: c.patienceMax,
+          x: +c.group.position.x.toFixed(2),
+          z: +c.group.position.z.toFixed(2),
         })),
         fps: lastFps,
       };

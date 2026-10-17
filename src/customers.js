@@ -382,20 +382,30 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
   }
 
   /**
-   * Hand the top plate to whoever is in reach.
-   * @returns {null|{type:'served'|'wrong'|'done', customer:object, dish:string}}
+   * Hand a plate to whoever is in reach.
+   *
+   * ANY plate in the carried stack that matches what this customer wants will
+   * do — it does not have to be the one on top. `stack` is the player's plates
+   * bottom-first; the matching index comes back in the result so the caller can
+   * pull that exact plate off.
+   *
+   * @param {{x:number,z:number}} playerPos
+   * @param {string[]} stack dish ids, bottom first
+   * @returns {null|{type:'served'|'wrong', customer:object, dish:string, index:number}}
    */
-  function deliver(playerPos, topDish) {
+  function deliver(playerPos, stack) {
     const cust = customerInReach(playerPos);
-    if (!cust || !topDish) return null;
+    if (!cust || !stack || stack.length === 0) return null;
     if (cust.wrongCooldown > 0) return null;
 
     const need = cust.order[cust.orderIndex];
-    if (topDish === need) {
+    const index = stack.indexOf(need);
+
+    if (index >= 0) {
       cust.orderIndex++;
       cust.wrongCooldown = 0.25;
       const fraction = cust.patience / cust.patienceMax;
-      const result = { type: 'served', customer: cust, dish: topDish, fraction };
+      const result = { type: 'served', customer: cust, dish: need, index, fraction };
       if (cust.orderIndex >= cust.order.length) {
         cust.orderIndex = cust.order.length;
         cust.state = 'happy';
@@ -411,7 +421,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
       return result;
     }
 
-    // wrong dish: it stays in your hands and they lose patience fast
+    // wrong dish: nothing is taken off the stack, but they lose patience fast
     cust.patience = Math.max(0, cust.patience - K.wrongDishPenalty);
     cust.wrongCooldown = K.wrongDishCooldown;
     cust.char.squash();
@@ -421,7 +431,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
       losePatience(cust);
     }
     if (callbacks.onWrong) callbacks.onWrong(cust);
-    return { type: 'wrong', customer: cust, dish: topDish };
+    return { type: 'wrong', customer: cust, dish: need, index: -1 };
   }
 
   function losePatience(cust) {
