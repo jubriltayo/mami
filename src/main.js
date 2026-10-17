@@ -18,9 +18,14 @@ import { initUI } from './ui.js';
 import * as audio from './audio.js';
 import { game, STATE, startRound, tick, difficulty, serveValue, addCoins, addServed, loseLife, onGameOverHook } from './game.js';
 
-// Read ?test=1 from the URL and enable test mode
+// URL flags:
+//   ?test=1   fast-forward mode: patience crushed so a whole round (3 storm
+//             outs -> game over -> Play again) plays out in under a minute.
+//   ?debug=1  expose window.__mami for scripted browser tests. Implied by
+//             ?test=1. Neither flag changes normal play.
 const urlParams = new URLSearchParams(window.location.search);
 CONFIG.testMode = urlParams.get('test') === '1';
+CONFIG.debugMode = CONFIG.testMode || urlParams.get('debug') === '1';
 
 const C = CONFIG;
 
@@ -766,10 +771,11 @@ requestAnimationFrame(frame);
 verifyDishPickups(world.pickups);
 
 // ---------------------------------------------------------------------------
-// Test mode hook (?test=1): exposes live state so the game loop can be driven
-// and asserted from an automated browser test. Never present in normal play.
+// Test/debug hook (?test=1 / ?debug=1): exposes live state so the game can be
+// driven and asserted from an automated browser test. Never present in normal
+// play.
 // ---------------------------------------------------------------------------
-if (CONFIG.testMode) {
+if (CONFIG.debugMode) {
   window.__mami = {
     game,
     config: C,
@@ -784,6 +790,7 @@ if (CONFIG.testMode) {
         elapsed: +game.elapsed.toFixed(2),
         carry: carry.map((p) => p.userData.dish),
         customers: customers.all.map((c) => ({
+          id: c.id,
           state: c.state,
           dish: c.order[c.orderIndex] || null,
           order: c.order.slice(),

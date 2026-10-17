@@ -567,8 +567,11 @@ function buildRoom() {
   const room = new THREE.Group();
   room.name = 'room';
 
-  // Dark ground the whole diorama sits on, so the room doesn't float in a void.
-  const outside = part(planeGeo(52, 52), mat(0x2b2219), 0, -0.06, 0, { cast: false });
+  // Dusty ground the whole diorama sits on. In portrait the camera follows the
+  // player toward the front wall, so this has to read as ground rather than a
+  // black void at the bottom of the screen.
+  const outside = part(planeGeo(52, 52),
+    mat(0x544435, { emissive: 0x14100b, emissiveIntensity: 1 }), 0, -0.06, 0, { cast: false });
   outside.rotation.x = -Math.PI / 2;
   room.add(outside);
 

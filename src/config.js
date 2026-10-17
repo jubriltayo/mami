@@ -4,10 +4,12 @@
 // ---------------------------------------------------------------------------
 
 export const CONFIG = {
-  // Dev switch. main.js sets this from the URL query string (?test=1) before
-  // anything else runs. When on, patience is crushed so a full round —
-  // 3 storm-outs, game over, Play again — plays out in seconds.
+  // Dev switches. main.js sets these from the URL query string before anything
+  // else runs. Neither is ever on in normal play.
+  //   testMode  (?test=1)  crush patience so a whole round plays out fast
+  //   debugMode (?debug=1) expose window.__mami for scripted browser tests
   testMode: false,
+  debugMode: false,
 
   // ---------------------------------------------------------------- renderer
   renderer: {
@@ -23,10 +25,10 @@ export const CONFIG = {
   // Angled top-down over the whole room. position/target are in world units.
   camera: {
     fov: 42,
-    portraitFov: 50,     // taller screens: zoomed in + camera follows the player
-    portraitOffset: [0, 11.5, 10.5],
-    portraitLookAhead: 1.8,  // bias the view into the room, not the front wall
-    followLimits: { x: 5.0, z: 3.0 },
+    portraitFov: 48,     // taller screens: zoomed in + camera follows the player
+    portraitOffset: [0, 11.8, 10.8],
+    portraitLookAhead: 1.4,  // bias the view into the room, not the front wall
+    followLimits: { x: 5.0, z: 1.6 },
     near: 0.1,
     far: 80,
     position: [0, 13, 16.2],
@@ -158,9 +160,9 @@ lights: {
     // player back out to z>4.12, so spawning any closer traps them there.
     spawn: [0, 5.2],
     radius: 0.34,
-    maxSpeed: 6.2,
-    acceleration: 26,     // how fast we reach max speed
-    friction: 12,         // how fast we stop when no input
+    maxSpeed: 7.8,         // ~25% faster than the first pass
+    acceleration: 32,      // ~25% snappier: stops feeling like wading
+    friction: 12,          // how fast we stop when no input
     turnSpeed: 14,        // how fast the body turns to face travel
     walkCycle: 11,        // steps per second at full speed
     carryHeight: 1.02,     // y of the bottom plate (world, feet at 0)
@@ -185,22 +187,27 @@ lights: {
     wrongDishPenalty: 5.0, // seconds of patience knocked off
     wrongDishCooldown: 0.9,
     happyDelay: 0.5,       // pause before a happy customer stands up
-    // Order bubble world size. The dish NAME has to be readable on a phone,
-    // where the bubble is only ~90 CSS px across.
-    bubbleScale: 1.55,
+    // Order bubble world size. The dish NAME has to be readable on a phone
+    // (~90 CSS px across), but with 9 customers seated the bubbles crowd each
+    // other, so this is deliberately not bigger.
+    bubbleScale: 1.3,
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,
     // Difficulty: lerp between the two bracketing levels by `at` (seconds).
+    // Early patience is generous (~20s) and tightens from there; spawn gaps
+    // start at ~6.5s so 4-5 customers are seated inside the first 40s.
     levels: [
-      { at: 0,   spawn: 6.2, patience: 50, order: 1, speed: 1.5 },
-      { at: 45,  spawn: 5.3, patience: 45, order: 1, speed: 1.7 },
-      { at: 90,  spawn: 4.6, patience: 40, order: 1, speed: 1.9 },
-      { at: 140, spawn: 4.0, patience: 36, order: 2, speed: 2.1 },
-      { at: 200, spawn: 3.5, patience: 32, order: 2, speed: 2.3 },
-      { at: 270, spawn: 3.0, patience: 28, order: 2, speed: 2.5 },
-      { at: 350, spawn: 2.6, patience: 25, order: 2, speed: 2.7 },
+      { at: 0,   spawn: 5.8, patience: 20,   order: 1, speed: 2.6 },
+      { at: 45,  spawn: 5.2, patience: 18,   order: 1, speed: 2.8 },
+      { at: 90,  spawn: 5.1, patience: 16,   order: 1, speed: 3.0 },
+      { at: 140, spawn: 4.5, patience: 14,   order: 2, speed: 3.1 },
+      { at: 200, spawn: 4.0, patience: 12.5, order: 2, speed: 3.2 },
+      { at: 270, spawn: 3.5, patience: 11,   order: 2, speed: 3.3 },
+      { at: 350, spawn: 3.0, patience: 10,   order: 2, speed: 3.4 },
     ],
+    // How quickly the first customer appears once a round starts.
+    firstSpawnDelay: 0.7,
   },
 
   // ------------------------------------------------------------------ scoring

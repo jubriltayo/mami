@@ -79,40 +79,44 @@ canvas { display: block; width: 100%; height: 100%; }
 /* ---------------------------------------------------------------- HUD */
 #hud {
   position: absolute; top: 0; left: 0; right: 0;
-  display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
-  padding: 12px 14px; opacity: 0; transition: opacity .3s ease;
+  display: flex; gap: 8px; align-items: flex-start; justify-content: space-between;
+  padding: clamp(7px, 2.2vw, 12px) clamp(8px, 2.4vw, 14px);
+  opacity: 0; transition: opacity .3s ease;
 }
 #hud.show { opacity: 1; }
 .hud-panel {
   background: rgba(12,9,6,.55);
   border: 2px solid rgba(253,243,216,.18);
-  border-radius: 12px; padding: 8px 12px;
+  border-radius: 12px;
+  padding: clamp(5px, 1.6vw, 8px) clamp(7px, 2.2vw, 12px);
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .hud-stat { font-size: clamp(15px, 4vw, 22px); font-weight: 800; line-height: 1.15; }
-.hud-label { font-size: 10px; letter-spacing: .2em; color: #c9b28c; text-transform: uppercase; }
+.hud-label { font-size: clamp(8px, 2.2vw, 10px); letter-spacing: .2em; color: #c9b28c; text-transform: uppercase; }
 .hud-right { display: flex; gap: 8px; align-items: flex-start; }
 #hearts { font-size: clamp(17px, 4.4vw, 24px); letter-spacing: 4px; }
 .heart-off { opacity: .22; }
 
-/* carry stack readout: icon + dish name per plate */
-#carry { display: flex; gap: 6px; align-items: stretch; margin-top: 8px; }
+/* carry stack readout: icon + dish name per plate.
+   Sizes are viewport-relative so the panel does not eat a phone screen. */
+#carry { display: flex; gap: 4px; align-items: stretch; margin-top: 6px; }
 .slot {
-  width: 74px; min-height: 52px; border-radius: 9px;
+  width: clamp(40px, 12.5vw, 60px);
+  min-height: clamp(36px, 10vw, 44px); border-radius: 8px;
   border: 2px dashed rgba(253,243,216,.3);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; padding: 3px 2px;
+  gap: 1px; padding: 2px;
   color: #241505; opacity: .3; overflow: hidden;
 }
 .slot.filled { opacity: 1; border-style: solid; border-color: rgba(0,0,0,.4); }
 .slot.top { box-shadow: 0 0 0 2px var(--gold); }
 .slot .icon {
-  width: 30px; height: 30px;
+  width: clamp(18px, 5.5vw, 25px); height: clamp(18px, 5.5vw, 25px);
   background-size: contain; background-repeat: no-repeat; background-position: center;
   filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
 }
 .slot .nm {
-  font-size: 8px; font-weight: 900; letter-spacing: .01em; line-height: 1;
+  font-size: clamp(6px, 1.9vw, 8px); font-weight: 900; letter-spacing: 0; line-height: 1;
   text-align: center; max-width: 100%; overflow: hidden;
   white-space: nowrap; text-overflow: ellipsis;
 }
@@ -123,11 +127,11 @@ canvas { display: block; width: 100%; height: 100%; }
 #drop {
   pointer-events: auto; cursor: pointer;
   font-family: var(--font); font-weight: 900;
-  font-size: 12px; letter-spacing: .12em;
+  font-size: 11px; letter-spacing: .1em;
   color: #2a1a10; background: #e8dcc4;
-  border: 2px solid rgba(0,0,0,.35); border-radius: 9px;
-  padding: 7px 11px; margin-top: 8px;
-  display: flex; align-items: center; gap: 5px;
+  border: 2px solid rgba(0,0,0,.35); border-radius: 8px;
+  padding: 6px 10px; margin-top: 7px;
+  display: inline-flex; align-items: center; gap: 5px;
   transition: transform .08s ease, opacity .15s ease;
 }
 #drop:active { transform: translateY(2px); }

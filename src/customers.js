@@ -213,7 +213,7 @@ let nextId = 1;
 export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }) {
   /** @type {Array<object>} live customers */
   let list = [];
-  let spawnTimer = 2.5;
+  let spawnTimer = K.firstSpawnDelay;
   const tmpVec = new THREE.Vector3();
 
   function freeSeat() {
@@ -403,7 +403,9 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
 
     if (index >= 0) {
       cust.orderIndex++;
-      cust.wrongCooldown = 0.25;
+      // Just enough to stop the same frame double-processing; a two-item order
+      // should still go out back-to-back without a visible pause.
+      cust.wrongCooldown = 0.1;
       const fraction = cust.patience / cust.patienceMax;
       const result = { type: 'served', customer: cust, dish: need, index, fraction };
       if (cust.orderIndex >= cust.order.length) {
@@ -506,7 +508,9 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
   function reset() {
     for (const c of list) c.char.dispose();
     list = [];
-    spawnTimer = 2.5;
+    // First customer walks in almost immediately, so a round starts with
+    // something to do instead of an empty room.
+    spawnTimer = K.firstSpawnDelay;
   }
 
   return {
