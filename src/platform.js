@@ -18,7 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { CONFIG } from './config.js';
-import { normaliseStyle } from './character.js';
+import { normaliseStyle, DEFAULT_STYLE } from './character.js';
 
 const START_NG = 'https://start.ng';
 
@@ -31,26 +31,10 @@ const ON_START_NG = /\.start\.ng$/.test(location.hostname);
 // choose to play without an account. Then we must not nag them to sign in.
 const GUEST_BY_CHOICE = new URLSearchParams(location.search).has('guest');
 
-// Default look for a brand new guest (also the fallback for any missing or
-// unknown field in a real start.ng style — see character.js normaliseStyle).
-const GUEST_STYLE = {
-  body: 'female',
-  primaryColor: '#e2564a',
-  secondaryColor: '#f6efdd',
-  skinColor: '#8d5a2b',
-  hairColor: '#2b1a12',
-  hair: 'bun',
-  hat: 'none',
-  accessory: 'earrings',
-};
-
 // How long to wait for a reply before deciding start.ng had nothing to say.
 // The docs use 5s. A short wait keeps the title screen responsive; a long one
 // would leave the player staring at a guest look for longer than necessary.
 const REPLY_TIMEOUT_MS = 4000;
-
-// Local "current user" so the title screen's randomise button survives reloads.
-const STORAGE_KEY = 'mami.style';
 
 // Every registered onUserChange listener.
 const listeners = [];
@@ -139,19 +123,19 @@ function guestUser(style) {
   };
 }
 
-function loadGuest() {
-  // Try to remember a look the player picked on the title screen.
-  let style = { ...GUEST_STYLE };
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) style = { ...style, ...JSON.parse(saved) };
-  } catch {
-    // Private mode / disabled storage — the default look is fine.
-  }
-  return guestUser(normaliseStyle(style));
+/**
+ * Who the player is when start.ng has not answered — localhost, a file:// page,
+ * or start.ng simply being down. The built-in default look, named Guest.
+ *
+ * Note this is NOT a random look and NOT a remembered one: the player is
+ * whoever start.ng says they are, and when start.ng cannot be asked there is
+ * nobody to be, so it is the default.
+ */
+function offlineUser() {
+  return guestUser(normaliseStyle(DEFAULT_STYLE));
 }
 
-user = loadGuest();
+user = offlineUser();
 
 /** The user object: { isGuest, id, name, account, face, style } */
 export function getCurrentUser() {
@@ -281,19 +265,15 @@ export async function fetchLeaderboard(limit = 10) {
   return reply.entries;
 }
 
-// --- Guest-only extras used by the title screen. Not part of the game API. ---
+// --- Guest-only extras. Not part of the game API, and not reachable in normal
+// --- play: the "Shuffle my look" button only exists under ?debug=1, because in
+// --- a real game the server's look IS the player's start.ng character.
 
-/** Replace the guest's look and notify listeners. */
+/** Replace the guest's look and notify listeners. Debug/shuffle use only. */
 export function setGuestStyle(patch) {
-  const next = { ...getCurrentUser(), style: normaliseStyle({ ...user.style, ...patch }) };
   // Only meaningful while there is no real account to look after.
   if (!user.isGuest) return user;
-  user = next;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(user.style));
-  } catch {
-    /* storage unavailable, look still applies for this session */
-  }
+  user = guestUser(normaliseStyle({ ...user.style, ...patch }));
   emit();
   return user;
 }

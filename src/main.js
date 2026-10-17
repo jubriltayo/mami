@@ -90,13 +90,20 @@ function makePlayer(style) {
   player.setFacing(facing);
 }
 
-makePlayer(getCurrentUser().style);
+// The look the player will be built with at the START of the next round.
+//
+// Deliberately NOT rebuilt the moment start.ng answers: if the player signs in
+// or out while a round is running, swapping their body out from under them
+// mid-round is jarring (and the game is not in a state where a new character
+// makes sense). The new look lands at the next beginRound().
+let pendingStyle = getCurrentUser().style;
+makePlayer(pendingStyle);
 
-// start.ng (or the title screen shuffle) can change the look mid-session.
-// This runs before the UI exists, so it only touches the 3D scene; the chip is
-// updated by the second subscription added once the UI is built.
+// start.ng (or the debug shuffle) can change who the player is. This runs before
+// the UI exists, so it only stashes the look; the chip is updated by the second
+// subscription added once the UI is built.
 onUserChange((user) => {
-  makePlayer(user.style);
+  pendingStyle = user.style;
 });
 
 // ===========================================================================
@@ -412,6 +419,9 @@ function beginRound() {
   clearCarry();
   resetPickups();
   lastPickup = null;
+  // Whoever the player is NOW — signed in with their start.ng character, a
+  // start.ng guest, or the built-in default if start.ng could not be asked.
+  makePlayer(pendingStyle);
   startRound();
   player.group.position.set(world.playerSpawn.x, 0, world.playerSpawn.z);
   player.group.rotation.set(0, 0, 0);
@@ -798,16 +808,16 @@ function frame(now) {
 // Go
 // ===========================================================================
 
-// Pick a starting look if we don't have one yet.
-if (!getCurrentUser().style) setGuestStyle(randomStyle());
 ui.setBest(game.best);
 ui.setPlayer(getCurrentUser(), { guestByChoice: isGuestByChoice() });
+ui.setHudPlayer(getCurrentUser());
 ui.showHud(false);
 requestAnimationFrame(frame);
 
 // Now that the UI exists, keep the player chip in step with sign-in / sign-out.
 onUserChange((user) => {
   ui.setPlayer(user, { guestByChoice: isGuestByChoice() });
+  ui.setHudPlayer(user);
 });
 
 // Ask start.ng who is playing. Off a *.start.ng address this is a no-op that

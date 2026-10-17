@@ -109,6 +109,14 @@ canvas { display: block; width: 100%; height: 100%; }
 .hud-right { display: flex; gap: 8px; align-items: flex-start; }
 #hearts { font-size: clamp(22px, 3vw, 32px); letter-spacing: 4px; }
 .heart-off { opacity: .22; }
+/* Signed-in player, tucked under LEVEL. Deliberately quiet. */
+#hud-player {
+  margin-top: 3px; font-family: var(--font); font-weight: 700;
+  font-size: clamp(12px, 1.3vw, 14px); letter-spacing: .04em;
+  color: #ddc9a6; max-width: 22ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+#hud-player[hidden] { display: none; }
 
 /* --- carry tray: deliberately TINY -------------------------------------
    Three icon slots plus DROP, sized to stay out of the game's way. It used to
@@ -437,6 +445,8 @@ export function initUI(handlers) {
   const hearts = el('div', { id: 'hearts' });
   const levelStat = el('div', { class: 'hud-label', text: 'LEVEL 1' });
   const carry = el('div', { id: 'carry' });
+  // Declared with the other HUD nodes but placed in the right panel below.
+  let hudName;
 
   // DROP button: binners the top plate. Always on screen so touch players get
   // an explicit way to get rid of the plate they do not want.
@@ -462,7 +472,12 @@ export function initUI(handlers) {
     muteBtn.textContent = muted ? ICONS.off : ICONS.on;
   });
   const right = el('div', { class: 'hud-right' },
-    el('div', { class: 'hud-panel' }, hearts, levelStat),
+    el('div', { class: 'hud-panel' },
+      hearts, levelStat,
+      // Who you are, for a signed-in player. Hidden for guests — the title
+      // screen already says Guest, and this is play, not menus.
+      hudName = el('div', { id: 'hud-player', hidden: true }),
+    ),
     muteBtn,
   );
   const hint = el('div', { id: 'hint' });
@@ -623,8 +638,25 @@ export function initUI(handlers) {
         : (user.account ? `@${user.account}` : 'Signed in');
       // Show Sign in only to a guest who has NOT already chosen to play as one.
       signInBtn.hidden = !user.isGuest || guestByChoice;
-      // Shuffling your look only makes sense when it is your look to choose.
-      shuffleBtn.hidden = !user.isGuest;
+      // Shuffling your look is a DEBUG affordance only. In a real game the server is
+      // the player's own start.ng character, so there is nothing to shuffle.
+      shuffleBtn.hidden = !CONFIG.debugMode;
+    },
+
+    /**
+     * The signed-in player's name and @account, small, in the HUD.
+     * Hidden entirely for guests — nothing to show and less clutter mid-round.
+     */
+    setHudPlayer(user) {
+      if (!hudName) return;
+      const signedIn = !user.isGuest;
+      hudName.hidden = !signedIn;
+      if (!signedIn) {
+        hudName.textContent = '';
+        return;
+      }
+      hudName.textContent = user.account ? `${user.name || 'Player'}  @${user.account}` : (user.name || 'Player');
+      hudName.title = 'Signed in with start.ng';
     },
 
     /**

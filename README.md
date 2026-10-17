@@ -120,10 +120,30 @@ for this one).
 | read the board | `startng:leaderboard` with `limit: 10` |
 | sign in | `location.href = https://start.ng/?return_to=<this page>` |
 
-**Your character.** `user.style` is mapped straight through `character.js`, so
-the player is dressed as their start.ng self — body, colours, hair, hat and
-accessory all carry over. `normaliseStyle()` fills in anything missing or
-unrecognised, so a style value start.ng adds later can never break the game.
+**Your character.** The server *is* your start.ng character — there is no
+character select and no randomiser in normal play.
+
+| Who is playing | The player is |
+| --- | --- |
+| signed in | exactly `reply.user.style`, through `character.js` |
+| a guest | `reply.guest.style` from start.ng's own reply, named **Guest** |
+| start.ng did not answer | the built-in default style, named **Guest** |
+
+Body, colours, hair, hat and accessory all carry over. `normaliseStyle()`
+fills in anything missing or unrecognised, so a style value start.ng adds
+later can never break the character builder.
+
+**Identity changes land at the next round, not mid-round.** start.ng is re-asked
+on `focus` and `visibilitychange`, because the player may have signed in or out
+in another tab. If they did, the new look is held and applied by `beginRound()`
+— swapping your body out from under you halfway through a round would be
+jarring.
+
+**Customers are not affected.** They keep rolling random styles; only the
+server is a real player character.
+
+The signed-in player's name and `@account` appear in a small quiet line in the
+HUD. Guests see nothing there — the title screen already says **Guest**.
 
 **Not answering is not "signed out".** If nothing replies within 4 seconds the
 player simply stays a guest. There is no error, no spinner and nothing breaks —
@@ -205,7 +225,7 @@ Two URL query switches, neither of which is ever on in normal play:
 | Flag | What it does |
 | --- | --- |
 | `?test=1` | crushes patience and spaces arrivals so a whole round (3 storm-outs → game over → Play again) plays out in well under a minute. Also stops the game sending a score to start.ng. |
-| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test. Implied by `?test=1`. Also stops the game sending a score to start.ng. |
+| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test. Implied by `?test=1`. Also stops the game sending a score to start.ng, and is the only place the title screen's **Shuffle my look** button appears — in a real game your look is your start.ng character, so there is nothing to shuffle. |
 
 Both are read from the URL in `config.js`, not `main.js`: every module's body
 runs before `main.js`'s, so parsing them in `main.js` would leave `platform.js`
