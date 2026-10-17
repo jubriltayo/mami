@@ -258,6 +258,67 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 #paused.show { display: flex; }
 
+/* --------------------------------------------------------- start.ng pieces
+   Deliberately small and out of the way: the player chip is a single pill under
+   the title, and the leaderboard is its own screen so it never covers play. */
+.chip-row { margin: 8px 0 2px; display: flex; justify-content: center; }
+.title-actions {
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+  margin-top: 12px;
+}
+.title-actions .btn { margin-top: 0; }
+#player-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px;
+  background: rgba(253,243,216,.10);
+  border: 1px solid rgba(253,243,216,.22);
+  font-family: var(--font);
+}
+.chip-name { font-size: 14px; font-weight: 800; color: var(--cream); }
+.chip-account { font-size: 12px; color: #c9b28c; }
+.chip-signin {
+  font-family: var(--font); font-weight: 800; font-size: 12px;
+  color: #2a1a10; background: var(--gold);
+  border: 0; border-radius: 999px; padding: 4px 10px; cursor: pointer;
+}
+.chip-signin:hover { filter: brightness(1.08); }
+.btn.small { font-size: 14px; padding: 8px 16px; margin-top: 10px; }
+
+.over-rank {
+  margin-top: 10px; font-family: var(--font); font-weight: 800;
+  font-size: clamp(14px, 1.6vw, 17px); letter-spacing: .06em; color: var(--gold);
+}
+.over-rank:empty { display: none; }
+.over-rank.invite { color: #c9b28c; font-weight: 600; letter-spacing: .02em; }
+
+#board { z-index: 5; }
+.board-title {
+  font-family: var(--font); font-weight: 900;
+  font-size: clamp(22px, 3vw, 30px); letter-spacing: .18em;
+  color: var(--cream); margin-bottom: 14px;
+}
+#board-body {
+  width: min(420px, 92vw); max-height: 52vh; overflow: auto;
+  background: rgba(12,9,6,.62); border: 2px solid rgba(253,243,216,.18);
+  border-radius: 14px; padding: 6px 0;
+  font-family: var(--font);
+}
+#board-body .row {
+  display: grid; grid-template-columns: 34px 1fr auto auto;
+  gap: 10px; align-items: center;
+  padding: 7px 14px; font-size: 14px; color: #e8dcc4;
+}
+#board-body .row .rk { color: #c9b28c; font-weight: 800; text-align: right; }
+#board-body .row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#board-body .row .cs { font-weight: 800; color: var(--gold); }
+#board-body .row .sv { color: #c9b28c; font-size: 13px; }
+#board-body .row.me {
+  background: rgba(242,177,52,.16);
+  box-shadow: inset 0 0 0 1px rgba(242,177,52,.5);
+  border-radius: 8px;
+}
+#board-body .note { padding: 12px 14px; font-size: 13px; color: #c9b28c; }
+
 /* ------------------------------------------------------------- narrow screens
    On a phone the counter sits across the top of the screen, so a top-left HUD
    panel covers the jollof sign. Move the carry tray down into the empty strip
@@ -322,6 +383,9 @@ function el(tag, attrs = {}, ...children) {
  * @param {function} handlers.onRestart     play-again button
  * @param {function} handlers.onMute        mute button (returns new muted state)
  * @param {function} handlers.onDrop        DROP button / binners the top plate
+ * @param {function} handlers.onSignIn      start.ng sign-in
+ * @param {function} handlers.onShowBoard   open the start.ng leaderboard
+ * @param {function} handlers.onHideBoard   close the leaderboard
  */
 export function initUI(handlers) {
   const style = document.createElement('style');
@@ -335,17 +399,34 @@ export function initUI(handlers) {
   const titleBtn = el('button', { class: 'btn', text: 'Play' });
   const shuffleBtn = el('button', { class: 'btn ghost', text: 'Shuffle my look' });
   const bestLine = el('div', { class: 'best-line' });
+
+  // --- start.ng player chip -----------------------------------------------
+  // Small and out of the way: the character's name, their @account when they are
+  // signed in, and a Sign in button for guests (hidden if they chose guest).
+  const playerName = el('span', { class: 'chip-name', text: 'Guest' });
+  const playerAccount = el('span', { class: 'chip-account', text: 'Not signed in' });
+  const signInBtn = el('button', { class: 'chip-signin', text: 'Sign in' });
+  signInBtn.addEventListener('click', () => handlers.onSignIn());
+  const playerChip = el('div', { id: 'player-chip' },
+    playerName, playerAccount, signInBtn);
+  const chipRow = el('div', { class: 'chip-row' }, playerChip);
+
+  const boardBtn = el('button', { class: 'btn ghost small', text: 'Leaderboard' });
+  boardBtn.addEventListener('click', () => handlers.onShowBoard());
+  // Play / Shuffle / Leaderboard sit in one row so the title fits a 768px
+  // laptop screen without the last button falling off the bottom.
+  const titleActions = el('div', { class: 'title-actions' }, titleBtn, shuffleBtn, boardBtn);
   const title = el('div', { class: 'screen show', id: 'title' },
     el('h1', { class: 'title-main', text: 'MAMI' }),
     el('div', { class: 'title-sub', text: "Naija buka rush" }),
+    chipRow,
     el('p', { class: 'title-note' },
       "You are the only server in Mami's buka. Carry three plates at once, ",
       'run the room, and keep everyone happy before their patience runs out.'),
     el('div', { class: 'title-note' },
       'Desktop: WASD / arrows to move. Touch: drag on the left side.'),
     bestLine,
-    titleBtn,
-    shuffleBtn,
+    titleActions,
   );
   titleBtn.addEventListener('click', () => handlers.onPlay());
   shuffleBtn.addEventListener('click', () => handlers.onShuffle());
@@ -402,8 +483,14 @@ export function initUI(handlers) {
   const overServed = el('div', { class: 'score-num', text: '0' });
   const overBest = el('div', { class: 'best-line' });
   const newBest = el('div', { class: 'newbest', text: 'NEW BEST!' });
+  // start.ng: rank after saving, or a short nudge for guests.
+  const overRank = el('div', { class: 'over-rank' });
   const againBtn = el('button', { class: 'btn', text: 'Play again' });
   againBtn.addEventListener('click', () => handlers.onRestart());
+  const overBoardBtn = el('button', { class: 'btn ghost small', text: 'Leaderboard' });
+  overBoardBtn.addEventListener('click', () => handlers.onShowBoard());
+  const overSignInBtn = el('button', { class: 'btn ghost small', text: 'Sign in to save your score' });
+  overSignInBtn.addEventListener('click', () => handlers.onSignIn());
   const overScreen = el('div', { class: 'screen', id: 'gameover' },
     overTitle, overSub,
     el('div', { class: 'score-grid' },
@@ -412,12 +499,25 @@ export function initUI(handlers) {
     ),
     overBest,
     newBest,
+    overRank,
     againBtn,
+    overBoardBtn,
+    overSignInBtn,
+  );
+
+  // ---------------------------------------------------------- leaderboard
+  const boardBody = el('div', { id: 'board-body' });
+  const boardBackBtn = el('button', { class: 'btn ghost', text: 'Back' });
+  boardBackBtn.addEventListener('click', () => handlers.onHideBoard());
+  const boardScreen = el('div', { class: 'screen', id: 'board' },
+    el('h2', { class: 'board-title', text: 'Top servers' }),
+    boardBody,
+    boardBackBtn,
   );
 
   const paused = el('div', { id: 'paused' }, 'PAUSED');
 
-  root.append(title, hud, hint, toasts, stick, overScreen, paused);
+  root.append(title, hud, hint, toasts, stick, overScreen, boardScreen, paused);
 
   // =========================================================================
   // Joystick input — pointer drag anywhere on the LEFT half of the screen.
@@ -512,6 +612,80 @@ export function initUI(handlers) {
 
     hideGameOver() {
       overScreen.classList.remove('show');
+    },
+
+    // --- start.ng -------------------------------------------------------
+    /** Show the player's start.ng name / @account, and a sign-in for guests. */
+    setPlayer(user, { guestByChoice = false } = {}) {
+      playerName.textContent = user.name || 'Guest';
+      playerAccount.textContent = user.isGuest
+        ? (guestByChoice ? 'Playing as a guest' : 'Not signed in')
+        : (user.account ? `@${user.account}` : 'Signed in');
+      // Show Sign in only to a guest who has NOT already chosen to play as one.
+      signInBtn.hidden = !user.isGuest || guestByChoice;
+      // Shuffling your look only makes sense when it is your look to choose.
+      shuffleBtn.hidden = !user.isGuest;
+    },
+
+    /**
+     * Line under the game-over scores.
+     * @param {{rank:number, best:number, improved:boolean}|null} result
+     * @param {boolean} canSave  false for guests → show the invitation instead
+     * @param {boolean} guestByChoice
+     */
+    setRank(result, canSave, guestByChoice) {
+      if (canSave && result) {
+        overRank.classList.remove('invite');
+        overRank.textContent = result.improved
+          ? `New start.ng best — you're #${result.rank}!`
+          : `Saved to start.ng — you're #${result.rank}`;
+      } else if (canSave) {
+        // Signed in, but start.ng never answered (or we are off start.ng).
+        overRank.classList.remove('invite');
+        overRank.textContent = 'Played offline — score not sent';
+      } else if (guestByChoice) {
+        overRank.classList.remove('invite');
+        overRank.textContent = '';
+      } else {
+        overRank.classList.add('invite');
+        overRank.textContent = 'Sign in to start.ng to save your best score';
+      }
+      // A signed-in player never needs the button; a guest gets it (unless
+      // they deliberately chose to play as a guest, in which case we say
+      // nothing at all).
+      overSignInBtn.hidden = canSave || guestByChoice;
+    },
+
+    /**
+     * Top-10 board. `myId` highlights the player's own row.
+     * @param {Array<object>|null} entries  null when start.ng did not answer
+     */
+    showBoard(entries, myId) {
+      boardBody.textContent = '';
+      if (!entries) {
+        boardBody.append(el('div', { class: 'note', text: 'The start.ng leaderboard is not available here.' }));
+      } else if (!entries.length) {
+        boardBody.append(el('div', { class: 'note', text: 'No scores yet. Be the first.' }));
+      } else {
+        for (const e of entries) {
+          const mine = myId != null && e.player_id === myId;
+          boardBody.append(el('div', { class: mine ? 'row me' : 'row' },
+            el('div', { class: 'rk', text: `#${e.rank}` }),
+            el('div', { class: 'nm', text: e.name || 'Guest' }),
+            el('div', { class: 'cs', text: String(e.stats?.coins ?? e.score ?? 0) }),
+            el('div', { class: 'sv', text: `${e.stats?.served ?? 0} served` }),
+          ));
+        }
+      }
+      boardScreen.classList.add('show');
+    },
+
+    hideBoard() {
+      boardScreen.classList.remove('show');
+    },
+
+    isBoardOpen() {
+      return boardScreen.classList.contains('show');
     },
 
     setPaused(on) {

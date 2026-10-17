@@ -1,0 +1,8 @@
+{
+  "leaderboard": {
+    "stats": [
+      { "key": "coins", "label": "Coins", "order": "highest" },
+      { "key": "served", "label": "Meals served", "order": "highest" }
+    ]
+  }
+}

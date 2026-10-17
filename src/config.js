@@ -3,13 +3,21 @@
 // Nothing else in the game hard-codes a value you would want to tweak.
 // ---------------------------------------------------------------------------
 
+// Dev switches, read from the URL query string HERE rather than in main.js.
+// ES module bodies all run before main.js's body, so parsing the flags in
+// main.js would leave every other module seeing them as false for its whole
+// module body — including platform.js, which must know whether it is allowed
+// to send a score to start.ng.
+//   ?test=1   crush patience so a whole round plays out fast
+//   ?debug=1  expose window.__mami for scripted browser tests (implies test)
+const urlFlags = new URLSearchParams(window.location.search);
+const TEST_MODE = urlFlags.get('test') === '1';
+const DEBUG_MODE = TEST_MODE || urlFlags.get('debug') === '1';
+
 export const CONFIG = {
-  // Dev switches. main.js sets these from the URL query string before anything
-  // else runs. Neither is ever on in normal play.
-  //   testMode  (?test=1)  crush patience so a whole round plays out fast
-  //   debugMode (?debug=1) expose window.__mami for scripted browser tests
-  testMode: false,
-  debugMode: false,
+  // Neither is ever on in normal play.
+  testMode: TEST_MODE,
+  debugMode: DEBUG_MODE,
 
   // ---------------------------------------------------------------- renderer
   renderer: {

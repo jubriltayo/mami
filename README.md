@@ -54,8 +54,8 @@ There is no build step and no install. three.js r160 is vendored at
   * Wrong dish → it stays in your hands and they lose patience faster.
 - **Get rid of a plate you do not want** by walking into the **bin** at the end
   of the counter, pressing `Q`, or tapping **DROP**.
-- The **patience ring** over each customer's head goes green → yellow → red.
-  When it empties they storm off and you lose a life. **3 lives.**
+- The **patience bar** under each seated customer's order drains green → yellow →
+  red. When it empties they storm off and you lose a life. **3 lives.**
 - Later rounds get busier, customers get less patient, and orders grow to
   **two items**.
 
@@ -93,41 +93,110 @@ src/
   scene.js      three.js scene, camera, lights, the canteen itself
   character.js  builds any character from ONE style object
   customers.js  spawning, seating, orders, patience
-  ui.js         HTML/CSS overlays: title, HUD, game over, joystick
+  ui.js         HTML/CSS overlays: title, HUD, game over, leaderboard, joystick
   audio.js      Web Audio synthesis (no sample files)
-  platform.js   start.ng bridge — guest-only stub for now
+  platform.js   the start.ng bridge (whoami, sign-in, scores, leaderboard)
+startng.json    leaderboard columns (coins, served)
 ```
 
-### platform.js
+### platform.js — the start.ng bridge
 
-The game only ever touches `getCurrentUser()`, `onUserChange(fn)` and
-`signIn()`. Nothing else. When start.ng is ready, replace that one file with
-the real user service and no game code has to change.
+`src/platform.js` is the **only** file that talks to start.ng. The game uses
+`getCurrentUser()`, `onUserChange(fn)` and `signIn()` (plus `saveScore()` and
+`fetchLeaderboard()` at game over), so nothing else in the codebase knows how
+sign-in works.
 
-A style object looks like this — any missing or unknown field falls back to a
-default, so a partial style can never break the game:
+It talks to start.ng through its hidden connect page, `https://start.ng/connect`,
+with `postMessage`, exactly as <https://start.ng/docs.md> describes. Every reply
+is checked against **three** things before it is believed: `e.origin` (which
+makes it trustworthy), `e.source` (so no other frame can answer for it), and the
+`requestId` we generated (so a slow answer to an earlier question is not mistaken
+for this one).
 
-```js
+| What | How |
+| --- | --- |
+| who is playing | `startng:whoami` → `reply.user ?? reply.guest` |
+| save a run | `startng:score` with `{ stats: { coins, served } }` |
+| read the board | `startng:leaderboard` with `limit: 10` |
+| sign in | `location.href = https://start.ng/?return_to=<this page>` |
+
+**Your character.** `user.style` is mapped straight through `character.js`, so
+the player is dressed as their start.ng self — body, colours, hair, hat and
+accessory all carry over. `normaliseStyle()` fills in anything missing or
+unrecognised, so a style value start.ng adds later can never break the game.
+
+**Not answering is not "signed out".** If nothing replies within 4 seconds the
+player simply stays a guest. There is no error, no spinner and nothing breaks —
+which is what happens on localhost, and what would happen if start.ng were down.
+
+**Off start.ng, nothing happens at all.** The connect frame is only ever created
+when `location.hostname` ends in `.start.ng`. On `localhost`, a LAN IP or a
+`file://` page the game loads no iframe, sends no requests and logs no errors: it
+is a clean guest-only build. This is also how the automated tests run.
+
+**Re-checks on return.** The player may sign in or out on start.ng in another
+tab, so `startng:whoami` is asked again on `visibilitychange` and `focus`.
+
+**Guests** get start.ng's own guest look, the name **Guest**, and a **Sign in**
+button. If they arrived with `?guest` in the address — the start.ng homepage
+adds that when someone chooses "play as a guest" — the sign-in button and the
+end-of-round invitation are both hidden, because they already answered.
+
+**Scores are never sent from `?test=1` or `?debug=1`.** Those are automated
+runs; writing to a real player's leaderboard from a test would be wrong. The
+same two flags are also the only thing that exposes `window.__mami`.
+
+### startng.json — the leaderboard columns
+
+```json
 {
-  body: 'female',            // female | male
-  primaryColor: '#e2564a',
-  secondaryColor: '#f6efdd',
-  skinColor: '#8d5a2b',
-  hairColor: '#2b1a12',
-  hair: 'bun',               // short afro braids bun ponytail dreads bald
-  hat: 'none',               // none cap beanie tophat crown
-  accessory: 'earrings',     // none glasses earrings beard scarf backpack
+  "leaderboard": {
+    "stats": [
+      { "key": "coins",  "label": "Coins",       "order": "highest" },
+      { "key": "served", "label": "Meals served", "order": "highest" }
+    ]
+  }
 }
 ```
 
-The title screen's **Shuffle my look** button exercises the same
-`onUserChange` path that a real start.ng login will use.
+start.ng reads this when the game is published. Players are ranked by **coins**,
+with **meals served** breaking ties. Only each player's best run is kept.
+
+At game over a signed-in player's run is sent as exactly those two keys, as
+whole numbers. The reply carries a rank, which the game-over screen shows. The
+**Leaderboard** button (on the title and game-over screens) opens the top 10 and
+highlights the player's own row.
+
+### What I could not test locally
+
+Honest list — none of this ran against a real start.ng account here:
+
+- **Sign-in.** I could not sign in, so the real round trip through
+  `https://start.ng/?return_to=…` and back has never executed.
+- **A real `startng:whoami` reply.** There is no such thing on localhost, so the
+  "signed-in player" branch — the chip showing `@account`, hiding Sign in,
+  hiding Shuffle my look — was verified by reading the code, not by seeing it.
+- **Saving a score and getting a rank back.** `saveScore()` has never received a
+  real `startng:scoreSaved` reply.
+- **The leaderboard returning real entries.** It has only ever shown the
+  "not available here" path, and the row highlighting has never been exercised
+  against a real `player_id`.
+- **`startng.json` being accepted.** That check runs when the game is published,
+  which needs a public repo.
+
+The offline behaviour — guest look, no iframe, no errors, no score sent — **is**
+tested, and so is the guard that `?test=1` / `?debug=1` never send a score.
+Per the docs, all of this can only really be exercised once the game is live at
+`<name>.start.ng`.
 
 ### End of round
 
 Everything that happens when the round ends sits in one function,
 `onGameOver({ coins, served })` in `src/game.js`. It records the best score and
-fans out to whatever the UI registered via `onGameOverHook(fn)`.
+fans out to whatever the UI registered via `onGameOverHook(fn)`. The start.ng
+score save hangs off that hook in `main.js`, and never blocks the game-over
+screen: the screen is already up, and the rank line fills in only if start.ng
+answers.
 
 ### Dev flags
 
@@ -135,8 +204,12 @@ Two URL query switches, neither of which is ever on in normal play:
 
 | Flag | What it does |
 | --- | --- |
-| `?test=1` | crushes patience and spaces arrivals so a whole round (3 storm-outs → game over → Play again) plays out in well under a minute |
-| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test. Implied by `?test=1`. |
+| `?test=1` | crushes patience and spaces arrivals so a whole round (3 storm-outs → game over → Play again) plays out in well under a minute. Also stops the game sending a score to start.ng. |
+| `?debug=1` | exposes `window.__mami` (`snapshot()`, `grant()`, `place()`) so the game can be driven and asserted from an automated browser test. Implied by `?test=1`. Also stops the game sending a score to start.ng. |
+
+Both are read from the URL in `config.js`, not `main.js`: every module's body
+runs before `main.js`'s, so parsing them in `main.js` would leave `platform.js`
+believing it was allowed to send scores for its whole module body.
 
 At start-up the game also runs a dev check that logs to the console:
 
@@ -165,11 +238,12 @@ Everything you'd want to change for feel is in **`src/config.js`**:
 | penalty for a wrong dish | `customers.wrongDishPenalty`, `wrongDishCooldown` |
 | how close you must be to deliver | `customers.seatRadius` |
 | the bin | `bin.x`, `bin.z`, `bin.radius`, `bin.cooldown` |
-| how big the order bubble is | `customers.bubbleScale` |
+| how big the order bubble is | `customers.bubbleScreenFraction` (+ `…Narrow`), `bubbleHeightDeep` / `bubbleHeightShallow` |
+| how big the counter signs are | `sign.size` / `sign.portraitSize`, `sign.portraitY` |
 | how long a "NEW" badge stays up | `newBadgeSeconds` |
 | money | `game.baseTip`, `game.orderItemBonus`, `game.quickBonusMax`, and `dishes.*.price` |
 | juice: squash, hop, shake | `feel.*` |
-| camera angle and framing | `camera.position` / `camera.target`, `camera.portraitFov`, `portraitOffset` |
+| camera angle and framing | `camera.position` / `camera.target`, `camera.portraitFov`, `portraitPosition` / `portraitTarget` |
 | warmth and how many lights | `lights.*` |
 | frame rate safety | `renderer.pixelRatioCap`, `renderer.shadows` |
 

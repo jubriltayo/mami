@@ -7,7 +7,10 @@
 
 import * as THREE from 'three';
 import { CONFIG, unlockedDishIds, verifyDishPickups } from './config.js';
-import { getCurrentUser, onUserChange, setGuestStyle } from './platform.js';
+import {
+  getCurrentUser, onUserChange, setGuestStyle, signIn,
+  startUserService, saveScore, fetchLeaderboard, isGuestByChoice,
+} from './platform.js';
 import {
   initScene, initSteam, render, update as updateScene, resize, world, shake,
   setCameraPose, disposeAll, cylGeo, sphGeo, mat, updatePickupUnlocks, resetPickups,
@@ -18,15 +21,8 @@ import { initUI } from './ui.js';
 import * as audio from './audio.js';
 import { game, STATE, startRound, tick, difficulty, serveValue, addCoins, addServed, loseLife, onGameOverHook } from './game.js';
 
-// URL flags:
-//   ?test=1   fast-forward mode: patience crushed so a whole round (3 storm
-//             outs -> game over -> Play again) plays out in under a minute.
-//   ?debug=1  expose window.__mami for scripted browser tests. Implied by
-//             ?test=1. Neither flag changes normal play.
-const urlParams = new URLSearchParams(window.location.search);
-CONFIG.testMode = urlParams.get('test') === '1';
-CONFIG.debugMode = CONFIG.testMode || urlParams.get('debug') === '1';
-
+// Dev flags (?test=1 / ?debug=1) are read from the URL in config.js, because
+// every module's body runs before this one.
 const C = CONFIG;
 
 // ===========================================================================
@@ -96,7 +92,9 @@ function makePlayer(style) {
 
 makePlayer(getCurrentUser().style);
 
-// start.ng (or the title screen shuffle) can change the look mid-session
+// start.ng (or the title screen shuffle) can change the look mid-session.
+// This runs before the UI exists, so it only touches the 3D scene; the chip is
+// updated by the second subscription added once the UI is built.
 onUserChange((user) => {
   makePlayer(user.style);
 });
@@ -248,7 +246,30 @@ ui = initUI({
     if (game.state !== STATE.PLAYING) return;
     if (!dropTopPlate()) ui.toast('NOTHING TO DROP', 'bad');
   },
+  onSignIn() {
+    audio.start();
+    signIn();
+  },
+  onShowBoard() {
+    audio.start();
+    openLeaderboard();
+  },
+  onHideBoard() {
+    audio.start();
+    ui.hideBoard();
+    if (game.state !== STATE.PLAYING) ui.showTitle(true);
+  },
 });
+
+/**
+ * Open the start.ng top-10. Guests can read it too, so a guest tapping the
+ * button on the title screen sees the board rather than a dead end.
+ */
+async function openLeaderboard() {
+  ui.showTitle(false);
+  const entries = await fetchLeaderboard(10);
+  ui.showBoard(entries, getCurrentUser().id);
+}
 
 ui.setBest(game.best);
 ui.setMuteIcon(audio.isMuted());
@@ -257,6 +278,24 @@ onGameOverHook((summary) => {
   ui.showHud(false);
   ui.showGameOver(summary);
   audio.sfx.gameOver();
+
+  // start.ng: save the run for signed-in players. Exactly the two columns in
+  // startng.json, whole numbers. This never blocks or delays the game-over
+  // screen — the screen is already up and the line below fills in when (if)
+  // start.ng answers.
+  const signedIn = !getCurrentUser().isGuest;
+  ui.setRank(null, signedIn, isGuestByChoice());
+  if (!signedIn) return;
+  saveScore({
+    coins: Math.round(summary.coins),
+    served: Math.round(summary.served),
+  }).then((result) => {
+    // The player may have hit Play again while this was in flight.
+    if (game.state === STATE.PLAYING) return;
+    ui.setRank(result, true, isGuestByChoice());
+  }).catch(() => {
+    /* start.ng said nothing; the game-over screen already stands on its own */
+  });
 });
 
 // ===========================================================================
@@ -762,8 +801,18 @@ function frame(now) {
 // Pick a starting look if we don't have one yet.
 if (!getCurrentUser().style) setGuestStyle(randomStyle());
 ui.setBest(game.best);
+ui.setPlayer(getCurrentUser(), { guestByChoice: isGuestByChoice() });
 ui.showHud(false);
 requestAnimationFrame(frame);
+
+// Now that the UI exists, keep the player chip in step with sign-in / sign-out.
+onUserChange((user) => {
+  ui.setPlayer(user, { guestByChoice: isGuestByChoice() });
+});
+
+// Ask start.ng who is playing. Off a *.start.ng address this is a no-op that
+// loads nothing, so a local preview stays a clean guest-only build.
+startUserService();
 
 // Dev check: every dish a customer can be ordered must have a pickup point on
 // the counter. Logs to the console rather than throwing, so a table typo is
