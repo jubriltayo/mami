@@ -6,9 +6,12 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { CONFIG, unlockedDishIds, verifyDishPickups } from './config.js';
 import { getCurrentUser, onUserChange, setGuestStyle } from './platform.js';
-import { initScene, initSteam, render, update as updateScene, resize, world, shake, setCameraPose, setStationSelection, disposeAll, cylGeo, mat } from './scene.js';
+import {
+  initScene, initSteam, render, update as updateScene, resize, world, shake,
+  setCameraPose, disposeAll, cylGeo, mat, updatePickupUnlocks, resetPickups,
+} from './scene.js';
 import { buildCharacter, randomStyle } from './character.js';
 import { createCustomerSystem, buildPlate } from './customers.js';
 import { initUI } from './ui.js';
@@ -223,6 +226,14 @@ const CALM = { spawn: 5.5, patience: 99999, order: 1, speed: 1.1, maxActive: 4, 
 const customers = createCustomerSystem({
   scene: roundRoot,
   difficulty: () => (game.state === STATE.PLAYING ? difficulty() : CALM),
+  // Customers can only ever be asked for dishes that are unlocked AND sitting
+  // on the counter with a labelled pickup point.
+  orderPool: () => {
+    const unlocked = unlockedDishIds(game.elapsed);
+    const pickupIds = new Set(world.pickups.map((p) => p.dishId));
+    const usable = unlocked.filter((id) => pickupIds.has(id));
+    return usable.length ? usable : ['jollof']; // never hand out an empty pool
+  },
   callbacks: {
     onArrive() {
       audio.sfx.arrive();
@@ -266,12 +277,6 @@ const MOVE_KEYS = new Set([
 ]);
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' || e.code === 'Enter') {
-    e.preventDefault();
-    audio.start();
-    if (game.state === STATE.PLAYING) cycleStation();
-    return;
-  }
   if (MOVE_KEYS.has(e.code)) {
     e.preventDefault();
     keys.add(e.code);
@@ -314,6 +319,8 @@ function beginRound() {
   effects.length = 0;
   customers.reset();
   clearCarry();
+  resetPickups();
+  lastPickup = null;
   startRound();
   player.group.position.set(world.playerSpawn.x, 0, world.playerSpawn.z);
   player.group.rotation.set(0, 0, 0);
@@ -418,50 +425,44 @@ function movePlayer(dt) {
 }
 
 // ===========================================================================
-// Stations
+// Pickup points — one per dish, no cycling
 // ===========================================================================
 
-/** The station the player is standing at, if any. */
-function nearbyStation() {
+/** The pickup point the player is standing at, if any. */
+function nearbyPickup() {
   const p = player.group.position;
   if (p.z > -3.1) return null; // too far from the counter
   let best = null;
   let bestD = Infinity;
-  for (const st of world.stations) {
-    const d = Math.abs(p.x - st.x);
+  for (const pk of world.pickups) {
+    const d = Math.abs(p.x - pk.x);
     if (d < C.pickupRadius && d < bestD) {
       bestD = d;
-      best = st;
+      best = pk;
     }
   }
   return best;
 }
 
-let lastStation = null;
+let lastPickup = null;
 
-/** Space / tap: switch which dish the multi-dish station is offering. */
-function cycleStation() {
-  const st = nearbyStation();
-  if (!st || st.dishes.length < 2) return;
-  st.select = (st.select + 1) % st.dishes.length;
-  setStationSelection(st, st.dishes[st.select]);
-  audio.sfx.cycle();
-  ui.setHint(`<b>${st.name}</b> now gives <b>${C.dishes[st.dishes[st.select]].label}</b>`);
-}
+/**
+ * Walking into an unlocked pickup point puts that dish on the stack. A locked
+ * point gives nothing and says so on the hint bar.
+ */
+function updatePickups() {
+  const pk = nearbyPickup();
+  if (pk === lastPickup) return;
+  lastPickup = pk;
+  if (!pk) return;
 
-function updateStations() {
-  const st = nearbyStation();
-  if (st !== lastStation) {
-    lastStation = st;
-    if (st) {
-      // set the label to match the selection (also fixes the initial label)
-      setStationSelection(st, st.dishes[st.select]);
-      // walking into a station puts that dish in your hands
-      if (carry.length < C.player.carryLimit) {
-        takeDish(st.dishes[st.select]);
-      }
-    }
+  if (!pk.unlocked) {
+    ui.toast(`${pk.short} NOT READY`, 'bad');
+    audio.sfx.wrong();
+    return;
   }
+  if (carry.length < C.player.carryLimit) takeDish(pk.dishId);
+  else ui.toast('HANDS FULL — BIN IT (Q)', 'bad');
 }
 
 /** Add a plate to the top of the stack. */
@@ -486,23 +487,32 @@ function takeDish(dishId) {
 
 let lastHint = '';
 function updateHint() {
-  const st = nearbyStation();
-  if (st && carry.length < C.player.carryLimit) {
-    const dish = C.dishes[st.dishes[st.select]].label;
-    const extra = st.dishes.length > 1 ? ' · <b>Space</b> to switch' : '';
-    setHint(`<b>${st.name}</b> → ${dish}${extra}`);
+  const pk = nearbyPickup();
+  if (pk && !pk.unlocked) {
+    setHint(`<b>${pk.name}</b> — not ready yet (unlocks at ${Math.round(pk.unlockAt)}s)`);
     return;
   }
-  if (carry.length >= C.player.carryLimit) {
-    const top = C.dishes[carry[carry.length - 1].userData.dish].label;
-    setHint(`Carrying ${carry.length}/${C.player.carryLimit} — top: <b>${top}</b>`);
+  if (pk && carry.length < C.player.carryLimit) {
+    setHint(`<b>${pk.name}</b> — walk in to take one`);
     return;
   }
   const near = customers.customerInReach(player.group.position);
   if (near) {
-    const need = C.dishes[near.order[near.orderIndex]];
+    const needId = near.order[near.orderIndex];
+    const need = C.dishes[needId];
     const count = near.order.length - near.orderIndex;
-    setHint(`They want <b>${need.label}</b>${count > 1 ? ` ×${count}` : ''}`);
+    const holding = carry.map((p) => p.userData.dish);
+    const match = holding.indexOf(needId);
+    if (match !== -1) {
+      setHint(`Give them <b>${need.name}</b>${count > 1 ? ` (${count} left)` : ''}`);
+    } else {
+      setHint(`They want <b>${need.name}</b>${count > 1 ? ` ×${count}` : ''} — you don't have it`);
+    }
+    return;
+  }
+  if (carry.length > 0) {
+    const names = carry.map((p) => C.dishes[p.userData.dish].short);
+    setHint(`Carrying ${names.join(' · ')} &nbsp;<b>Q</b> to bin the top`);
     return;
   }
   setHint('');
@@ -570,9 +580,16 @@ function frame(now) {
     if (playing) {
       tick(dt);
       movePlayer(dt);
-      updateStations();
 
-      // hand the top plate to whoever we're standing next to
+      // Unlock new pickup points as the round goes on (drops a "NEW" sign).
+      for (const fresh of updatePickupUnlocks(game.elapsed)) {
+        ui.toast(`NEW: ${fresh.name}!`, 'good');
+        audio.sfx.unlock();
+      }
+
+      updatePickups();
+
+      // hand a plate to whoever we're standing next to
       if (carry.length > 0) {
         const top = carry[carry.length - 1].userData.dish;
         const result = customers.deliver(player.group.position, top);
@@ -620,6 +637,11 @@ if (!getCurrentUser().style) setGuestStyle(randomStyle());
 ui.setBest(game.best);
 ui.showHud(false);
 requestAnimationFrame(frame);
+
+// Dev check: every dish a customer can be ordered must have a pickup point on
+// the counter. Logs to the console rather than throwing, so a table typo is
+// obvious without taking the game down.
+verifyDishPickups(world.pickups);
 
 // ---------------------------------------------------------------------------
 // Test mode hook (?test=1): exposes live state so the game loop can be driven

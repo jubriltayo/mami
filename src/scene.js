@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { CONFIG, dishList } from './config.js';
 
 const C = CONFIG;
 
@@ -173,6 +173,168 @@ function signTexture(text, {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Dish icon painter — ONE implementation, used by the counter signs here and
+// by the customer order bubbles in customers.js (which imports it from here,
+// so the bubble and the sign can never drift apart).
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw a food glyph for a dish icon key, centred on (cx, cy) with radius r.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} icon key from CONFIG.dishes[id].icon
+ */
+export function drawDishIcon(ctx, icon, cx, cy, r) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  switch (icon) {
+    case 'jollof': {
+      // plate of orange rice with a plantain on the side
+      ctx.fillStyle = '#efe3cd';
+      ctx.beginPath(); ctx.ellipse(0, r * 0.42, r * 1.15, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e07a2b';
+      ctx.beginPath(); ctx.arc(0, r * 0.2, r * 0.78, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f0c04a';
+      ctx.beginPath(); ctx.ellipse(r * 0.72, r * 0.3, r * 0.3, r * 0.16, 0.4, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'egusi': {
+      // white pounded yam with brown soup
+      ctx.fillStyle = '#efe3cd';
+      ctx.beginPath(); ctx.ellipse(0, r * 0.4, r * 1.1, r * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c59a5b';
+      ctx.beginPath(); ctx.ellipse(-r * 0.15, r * 0.24, r * 0.85, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f7f2e6';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.ellipse(r * 0.45 - i * r * 0.05, -r * 0.3 + i * r * 0.42, r * 0.34, r * 0.2, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'moimoi': {
+      ctx.fillStyle = '#efe3cd';
+      ctx.beginPath(); ctx.ellipse(0, r * 0.45, r * 1.1, r * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#cf9a52';
+      for (const [dx, dy] of [[-0.45, 0.1], [0.4, 0.14], [0, -0.4]]) {
+        ctx.beginPath(); ctx.arc(dx * r, dy * r, r * 0.42, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'suya': {
+      ctx.strokeStyle = '#c9b184';
+      ctx.lineWidth = r * 0.16;
+      for (const dy of [-0.42, 0.3]) {
+        ctx.beginPath(); ctx.moveTo(-r, dy * r); ctx.lineTo(r, dy * r); ctx.stroke();
+      }
+      ctx.fillStyle = '#8c4a2a';
+      for (const dy of [-0.42, 0.3]) {
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc((i - 1) * r * 0.5, dy * r, r * 0.26, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      break;
+    }
+    case 'zobo': {
+      ctx.fillStyle = '#b0203c';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.45, -r * 0.7); ctx.lineTo(r * 0.45, -r * 0.7);
+      ctx.lineTo(r * 0.3, r * 0.8); ctx.lineTo(-r * 0.3, r * 0.8);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#f4d9a0';
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath(); ctx.moveTo(r * 0.6, -r * 0.6); ctx.lineTo(r * 0.95, -r * 0.95); ctx.stroke();
+      break;
+    }
+    case 'chapman':
+    default: {
+      ctx.fillStyle = '#d9873a';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.45, -r * 0.7); ctx.lineTo(r * 0.45, -r * 0.7);
+      ctx.lineTo(r * 0.3, r * 0.8); ctx.lineTo(-r * 0.3, r * 0.8);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f2b134';
+      ctx.beginPath(); ctx.ellipse(0, -r * 0.7, r * 0.45, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+const hexCss = (v) => '#' + (v >>> 0).toString(16).slice(-6).padStart(6, '0');
+
+/**
+ * The sign on a pickup point: dish icon + dish name, in the dish's colour.
+ * A locked pickup is drawn dark and crossed out, so it is obvious at a glance
+ * that walking in there will not give you anything yet.
+ */
+function pickupSignTexture(dish, unlocked) {
+  return canvasTexture(512, 212, (ctx, w, h) => {
+    const bg = unlocked ? '#2a1c14' : '#191919';
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // border in the dish colour, bright when unlocked
+    ctx.strokeStyle = unlocked ? hexCss(dish.color) : '#3d3d3d';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(6, 6, w - 12, h - 12);
+
+    // icon panel on the left
+    ctx.fillStyle = unlocked ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)';
+    ctx.beginPath(); ctx.roundRect(16, 16, 150, h - 32, 14); ctx.fill();
+    ctx.save();
+    if (!unlocked) ctx.globalAlpha = 0.3;
+    drawDishIcon(ctx, dish.icon, 91, h / 2, 56);
+    ctx.restore();
+
+    // name
+    ctx.fillStyle = unlocked ? '#fdf3d8' : '#5c5c5c';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    let fontSize = 54;
+    ctx.font = `bold ${fontSize}px "Segoe UI", sans-serif`;
+    // shrink to fit rather than overflow the sign
+    while (ctx.measureText(dish.name).width > w - 190 && fontSize > 22) {
+      fontSize -= 2;
+      ctx.font = `bold ${fontSize}px "Segoe UI", sans-serif`;
+    }
+    ctx.fillText(dish.name, 182, unlocked ? h / 2 - 14 : h / 2);
+
+    if (unlocked) {
+      ctx.fillStyle = hexCss(dish.color);
+      ctx.font = 'bold 34px "Segoe UI", sans-serif';
+      ctx.fillText(`${dish.price}`, 182, h / 2 + 32);
+      ctx.font = '22px "Segoe UI", sans-serif';
+      ctx.fillStyle = '#c9b28c';
+      ctx.fillText('N', 232, h / 2 + 33);
+    } else {
+      // crossed out, with when it arrives
+      ctx.strokeStyle = '#6b6b6b';
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(178, h / 2 + 20); ctx.lineTo(w - 26, h / 2 + 20); ctx.stroke();
+      ctx.fillStyle = '#7a7a7a';
+      ctx.font = '26px "Segoe UI", sans-serif';
+      ctx.fillText(`unlocks ${Math.round(dish.unlockAtSeconds)}s`, 182, h / 2 + 50);
+    }
+  });
+}
+
+/** The little NEW tag that pops on a pickup point when it unlocks. */
+function newBadgeTexture() {
+  return canvasTexture(256, 148, (ctx, w, h) => {
+    ctx.fillStyle = '#f2b134';
+    ctx.strokeStyle = '#7a4a06';
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.roundRect(10, 10, w - 20, h - 20, 18); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3a2200';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 74px "Segoe UI", sans-serif';
+    ctx.fillText('NEW', w / 2, h / 2 + 4);
+  });
+}
+
 /** Tiled floor: cheap checker + grout drawn once into a canvas. */
 function floorTexture() {
   return canvasTexture(256, 256, (ctx, w, h) => {
@@ -266,11 +428,11 @@ function posterTexture() {
  */
 export const world = {
   seats: [],        // { x, z, table, side }  chair positions, index = seat id
-  stations: [],     // station anchors, see buildStations()
+  pickups: [],      // one labelled pickup point per dish, see buildPickups()
+  bin: null,        // the bin at the end of the counter, see buildBin()
   colliders: [],    // { x, z, r } circles the player slides around
   door: null,       // where customers appear, outside the door
   doorGate: null,   // just inside the doorway
-  mamiAnchor: null,
   playerSpawn: new THREE.Vector3(C.player.spawn[0], 0, C.player.spawn[1]),
 };
 
@@ -567,114 +729,162 @@ function buildCounter() {
 
   // TV sits on the back-right wall (built in buildProps).
   scene.add(g);
-  buildStations(g);
+  buildPickups(g);
+  buildBin(g);
 }
 
-/** The four food stations sitting on the counter. */
-function buildStations(counterGroup) {
+// ---------------------------------------------------------------------------
+// Pickup points — one per dish, built straight from the CONFIG.dishes table.
+// ---------------------------------------------------------------------------
+
+/** The counter prop shown at a pickup point, chosen by dish.prop. */
+function buildProp(kind, dish, g, topY) {
+  switch (kind) {
+    case 'potRice':
+    case 'potSoup': {
+      const body = kind === 'potRice' ? 0x8f9296 : 0x9aa0a4;
+      g.add(part(cylGeo(0.34, 0.38, 0.1, 12), mat(0x3a3a3a), 0, topY + 0.05, 0));
+      g.add(part(cylGeo(0.42, 0.38, 0.5, 14), mat(body), 0, topY + 0.35, 0));
+      g.add(part(boxGeo(0.08, 0.06, 0.3), mat(0x4a4a4a), -0.44, topY + 0.5, 0, { cast: false }));
+      g.add(part(boxGeo(0.08, 0.06, 0.3), mat(0x4a4a4a), 0.44, topY + 0.5, 0, { cast: false }));
+      // visible stew, in the dish's own colour
+      g.add(part(cylGeo(0.38, 0.38, 0.04, 14),
+        mat(dish.color, { emissive: dish.color, emissiveIntensity: 0.2 }),
+        0, topY + 0.58, 0, { cast: false }));
+      if (kind === 'potSoup') {
+        // lumps of pounded yam sitting on top of the soup
+        for (const [dx, dz] of [[-0.14, 0.06], [0.1, -0.1], [0.02, 0.16]]) {
+          g.add(part(sphGeo(0.13, 6, 5), mat(0xf4efe2), dx, topY + 0.62, dz, { cast: false }));
+        }
+      }
+      return true; // steams
+    }
+    case 'jug': {
+      // a big drink jug: body, shoulder, neck, cap
+      g.add(part(cylGeo(0.2, 0.22, 0.44, 10), mat(dish.color, { emissive: dish.color, emissiveIntensity: 0.25 }),
+        0, topY + 0.24, 0));
+      g.add(part(cylGeo(0.11, 0.2, 0.12, 10), mat(dish.color), 0, topY + 0.5, 0, { cast: false }));
+      g.add(part(cylGeo(0.12, 0.12, 0.08, 10), mat(0xf4efe2), 0, topY + 0.58, 0, { cast: false }));
+      // handle
+      const handle = part(torusGeo(0.12, 0.025, 6, 10), mat(0xf4efe2), 0.2, topY + 0.34, 0, { cast: false });
+      handle.rotation.y = Math.PI / 2;
+      g.add(handle);
+      // a couple of cups beside it
+      g.add(part(cylGeo(0.08, 0.06, 0.13, 8), mat(0xe8dcc4), -0.32, topY + 0.07, 0.12, { cast: false }));
+      g.add(part(cylGeo(0.08, 0.06, 0.13, 8), mat(0xe8dcc4), -0.32, topY + 0.07, -0.1, { cast: false }));
+      return false;
+    }
+    case 'panRolls': {
+      g.add(part(cylGeo(0.3, 0.34, 0.1, 12), mat(0x3a3a3a), 0, topY + 0.05, 0));
+      g.add(part(cylGeo(0.5, 0.42, 0.16, 16), mat(0x2f3236), 0, topY + 0.2, 0));
+      g.add(part(boxGeo(0.48, 0.06, 0.1), mat(0x1f2124), 0.58, topY + 0.24, 0, { cast: false }));
+      for (const [dx, dz] of [[-0.14, 0.08], [0.12, -0.08], [0.02, 0.16]]) {
+        g.add(part(cylGeo(0.11, 0.11, 0.16, 8), mat(dish.color), dx, topY + 0.34, dz, { cast: false }));
+      }
+      // plantain slices leaning on the rim
+      for (let k = 0; k < 2; k++) {
+        const s = part(cylGeo(0.12, 0.12, 0.04, 10), mat(0xf0c04a), -0.34 + k * 0.06, topY + 0.3, -0.3,
+          { cast: false });
+        s.rotation.x = 1.1;
+        g.add(s);
+      }
+      return true; // frying, so it steams
+    }
+    case 'skewers':
+    default: {
+      // suya: a little grill rack of skewers
+      g.add(part(boxGeo(0.7, 0.06, 0.34), mat(0x3a3a3a), 0, topY + 0.06, 0, { cast: false }));
+      for (let k = 0; k < 3; k++) {
+        const z = -0.16 + k * 0.16;
+        g.add(part(boxGeo(0.66, 0.04, 0.04), mat(dish.color), 0, topY + 0.13, z, { cast: false }));
+        g.add(part(cylGeo(0.022, 0.022, 0.7, 5), mat(0xc9b184), 0, topY + 0.15, z, { cast: false }));
+        // meat lumps along the skewer
+        for (let m = -1; m <= 1; m++) {
+          g.add(part(boxGeo(0.15, 0.13, 0.14), mat(0x6b3a1c), m * 0.2, topY + 0.17, z, { cast: false }));
+        }
+      }
+      return true;
+    }
+  }
+}
+
+/**
+ * Build one labelled pickup point per dish and record it in world.pickups.
+ * The sign shows the dish icon AND its name, so there is never any guessing
+ * about what walking into a spot will put in your hands.
+ */
+function buildPickups(counterGroup) {
   const K = C.counter;
   const topY = K.height + 0.1;
 
-  C.stations.forEach((cfg, i) => {
+  for (const dish of dishList()) {
     const g = new THREE.Group();
-    g.position.set(cfg.x, 0, K.z);
+    g.position.set(dish.x, 0, K.z);
 
-    if (cfg.id === 'stove' || cfg.id === 'soup') {
-      // gas ring + big pot
-      g.add(part(cylGeo(0.34, 0.38, 0.1, 12), mat(0x3a3a3a), 0, topY + 0.05, 0));
-      const pot = part(cylGeo(0.42, 0.38, 0.5, 14), mat(cfg.id === 'stove' ? 0x8f9296 : 0x9aa0a4),
-        0, topY + 0.35, 0);
-      g.add(pot);
-      // handles
-      g.add(part(boxGeo(0.08, 0.06, 0.3), mat(0x4a4a4a), -0.44, topY + 0.5, 0, { cast: false }));
-      g.add(part(boxGeo(0.08, 0.06, 0.3), mat(0x4a4a4a), 0.44, topY + 0.5, 0, { cast: false }));
-      // visible stew at the top
-      const stewColor = cfg.id === 'stove' ? C.dishes['jollof'].color : 0x8a6a3e;
-      g.add(part(cylGeo(0.38, 0.38, 0.04, 14), mat(stewColor, { emissive: stewColor, emissiveIntensity: 0.15 }),
-        0, topY + 0.58, 0, { cast: false }));
-    } else if (cfg.id === 'pan') {
-      // frying pan on a ring: moi moi + plantain slices + suya skewers
-      g.add(part(cylGeo(0.3, 0.34, 0.1, 12), mat(0x3a3a3a), 0, topY + 0.05, 0));
-      g.add(part(cylGeo(0.52, 0.44, 0.16, 16), mat(0x2f3236), 0, topY + 0.2, 0));
-      g.add(part(boxGeo(0.5, 0.06, 0.1), mat(0x1f2124), 0.62, topY + 0.24, 0, { cast: false }));
-      // moi moi rolls
-      const moiColor = C.dishes['moi moi'].color;
-      for (const [dx, dz] of [[-0.12, 0.08], [0.12, -0.08], [0.02, 0.14]]) {
-        g.add(part(cylGeo(0.11, 0.11, 0.16, 8), mat(moiColor), dx, topY + 0.34, dz, { cast: false }));
-      }
-      // plantain slices (yellow discs leaning on the rim)
-      for (let k = 0; k < 3; k++) {
-        const s = part(cylGeo(0.13, 0.13, 0.04, 10), mat(0xf0c04a), -0.3 + k * 0.02, topY + 0.3, -0.34 + k * 0.06,
-          { cast: false });
-        s.rotation.x = 1.1;
-        s.rotation.z = 0.3;
-        g.add(s);
-      }
-      // suya skewers
-      for (let k = 0; k < 2; k++) {
-        const sk = part(boxGeo(0.05, 0.05, 0.72), mat(0xc9b184), 0.3 + k * 0.12, topY + 0.32, 0.1, { cast: false });
-        sk.rotation.y = 0.4 + k * 0.2;
-        sk.rotation.x = -0.25;
-        g.add(sk);
-        g.add(part(boxGeo(0.16, 0.14, 0.2), mat(C.dishes.suya.color), 0.3 + k * 0.12, topY + 0.34, 0.02, { cast: false }));
-      }
-    } else {
-      // drinks cooler: glass-front cabinet with bottles
-      const cool = part(boxGeo(1.3, 1.15, 0.6), mat(0x6f7b80), 0, topY + 0.58, -0.1);
-      g.add(cool);
-      g.add(part(boxGeo(1.36, 0.1, 0.66), mat(0x3f4a4f), 0, topY + 1.18, -0.1, { cast: false }));
-      // glass front
-      g.add(part(boxGeo(1.1, 0.85, 0.05),
-        mat(0xa8d8e8, { transparent: true, opacity: 0.35, depthWrite: false }),
-        0, topY + 0.6, -0.1 + 0.31, { cast: false }));
-      // bottles behind the glass
-      for (let r = 0; r < 2; r++) {
-        for (let c = 0; c < 5; c++) {
-          const bx = -0.44 + c * 0.22;
-          const by = topY + 0.3 + r * 0.44;
-          const bottleColor = (c + r) % 2 === 0 ? C.dishes.zobo.color : C.dishes.chapman.color;
-          g.add(part(cylGeo(0.075, 0.08, 0.26, 8), mat(bottleColor, { transparent: true, opacity: 0.9 }),
-            bx, by, -0.1, { cast: false }));
-        }
-      }
-    }
+    const steams = buildProp(dish.prop, dish, g, topY);
 
-    // A little card on the FRONT of the counter showing what this station is
-    // offering right now. Front-facing and low, so nothing in the room (pots,
-    // the player, customers) ever covers it.
-    const labelMat = new THREE.MeshLambertMaterial({
-      map: signTexture(cfg.name.toUpperCase(), { w: 512, h: 128, bg: '#5a2f22', font: 52 }),
-      flatShading: true,
-      transparent: true,
-    });
-    const label = new THREE.Mesh(planeGeo(1.7, 0.36), labelMat);
-    label.position.set(0, K.height - 0.34, K.depth / 2 + 0.04);
-    g.add(label);
+    // Sign on the FRONT of the counter: front-facing and low, so nothing in
+    // the room (pots, the player, customers) ever covers it.
+    const sign = new THREE.Mesh(planeGeo(1.5, 0.62),
+      new THREE.MeshLambertMaterial({ map: pickupSignTexture(dish, false), flatShading: true, transparent: true }));
+    sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.04);
+    g.add(sign);
+
+    // "NEW" badge, shown briefly when this pickup unlocks.
+    const badge = new THREE.Mesh(planeGeo(0.52, 0.3),
+      new THREE.MeshLambertMaterial({ map: newBadgeTexture(), flatShading: true, transparent: true }));
+    badge.position.set(0.66, K.height + 0.06, K.depth / 2 + 0.05);
+    badge.visible = false;
+    g.add(badge);
 
     counterGroup.add(g);
 
-    // Where the player stands to collect, and how the dish shows up.
-    world.stations.push({
-      index: i,
-      id: cfg.id,
-      name: cfg.name,
-      x: cfg.x,
+    const pickup = {
+      index: world.pickups.length,
+      dishId: dish.id,
+      name: dish.name,
+      short: dish.short,
+      icon: dish.icon,
+      x: dish.x,
+      // Where the player stands to collect.
       z: K.z + K.depth / 2 + 0.15,
-      dishes: cfg.dishes.slice(),
-      select: 0,
-      labelMesh: label,
-      steamAnchor: new THREE.Vector3(cfg.x, topY + 0.75, K.z),
-    });
-  });
+      signMesh: sign,
+      badgeMesh: badge,
+      badgeTime: 0,
+      unlocked: dish.unlockAtSeconds <= 0,
+      unlockAt: dish.unlockAtSeconds,
+      steamAnchor: steams ? new THREE.Vector3(dish.x, topY + 0.75, K.z) : null,
+    };
+    // Locked pickups start dimmed and say so.
+    sign.material.map = pickupSignTexture(dish, pickup.unlocked);
+    sign.material.needsUpdate = true;
+    world.pickups.push(pickup);
+  }
 }
 
-/** Tell the station label which dish is currently selected. */
-export function setStationSelection(station, dishId) {
-  const dish = C.dishes[dishId];
-  station.labelMesh.material.map = signTexture(dish.label.toUpperCase(), {
-    w: 512, h: 128, bg: '#5a2f22', font: 52,
-  });
-  station.labelMesh.material.needsUpdate = true;
+/** The bin at the end of the counter: walk into it to bin the top plate. */
+function buildBin(counterGroup) {
+  const K = C.counter;
+  const B = C.bin;
+  const topY = K.height + 0.1;
+  const g = new THREE.Group();
+  g.position.set(B.x, 0, K.z);
+
+  // galvanised bucket with a dark rim and a bin bag
+  g.add(part(cylGeo(0.34, 0.28, 0.52, 12), mat(0x7e8890), 0, topY + 0.26, 0));
+  g.add(part(torusGeo(0.34, 0.03, 6, 12), mat(0x4a4f55), 0, topY + 0.52, 0, { cast: false }));
+  const bag = part(sphGeo(0.3, 8, 6), mat(0x22252a), 0, topY + 0.46, 0, { cast: false });
+  bag.scale.set(1, 0.55, 1);
+  g.add(bag);
+
+  // a little sign so it reads as a bin, not a pot
+  const sign = new THREE.Mesh(planeGeo(0.7, 0.34),
+    new THREE.MeshLambertMaterial({ map: signTexture('BIN', { w: 256, h: 128, bg: '#3b3b3b', font: 74 }), flatShading: true, transparent: true }));
+  sign.position.set(0, K.height - 0.3, K.depth / 2 + 0.04);
+  g.add(sign);
+
+  counterGroup.add(g);
+  world.bin = { x: B.x, z: B.z, radius: B.radius, cooldown: 0, group: g };
 }
 
 // ===========================================================================
@@ -795,6 +1005,7 @@ function buildProps() {
       const z = -3.0 + i * 0.58;
       const kind = i % 3;
       const color = [C.dishes.zobo.color, C.dishes.chapman.color, 0x6f9f4f][i % 3];
+      // (drink bottles on the wall shelf — just dressing)
       if (kind === 0) {
         scene.add(part(cylGeo(0.07, 0.08, 0.28, 7), mat(color), C.room.width / 2 - 0.2, y + 0.17, z, { cast: false }));
         scene.add(part(cylGeo(0.035, 0.05, 0.1, 6), mat(color), C.room.width / 2 - 0.2, y + 0.36, z, { cast: false }));
@@ -814,8 +1025,11 @@ function buildProps() {
   scene.add(part(boxGeo(0.44, 0.62, 0.44), mat(0x3d8fbf), 3.6, 0.31, -5.65, { cast: false }));
   scene.add(part(boxGeo(0.44, 0.62, 0.44), mat(0x3d8fbf), 4.15, 0.31, -5.65, { cast: false }));
 
-  // --- stools tucked into the counter corners for the "quick eat" crowd ----
-  for (const x of [-7.0, 7.0]) {
+  // --- one stool tucked into the LEFT counter corner for the "quick eat"
+  // crowd. Nothing on the right: the bin lives there and needs a clear
+  // approach (a collider here would wall the player off from it).
+  {
+    const x = -7.0;
     const g = new THREE.Group();
     g.position.set(x, 0, -4.3);
     g.add(part(cylGeo(0.24, 0.26, 0.08, 10), mat(C.tables.colors.chair), 0, 0.62, 0));
@@ -830,11 +1044,11 @@ function buildProps() {
 // Steam
 // ===========================================================================
 
-/** Start the steam plumes above the pots and the pan. */
+/** Start the steam plumes above whichever pickup points cook something hot. */
 export function initSteam() {
   const count = C.feel.steamPuffs;
-  world.stations.forEach((st) => {
-    if (st.id === 'cooler') return; // cold drinks, no steam
+  world.pickups.forEach((st) => {
+    if (!st.steamAnchor) return; // cold drinks, no steam
     for (let i = 0; i < count; i++) {
       // Each puff needs its OWN material: opacity is animated per puff, and a
       // cached material would be shared by all of them.
@@ -864,6 +1078,46 @@ export function initSteam() {
 // ===========================================================================
 // Per-frame update
 // ===========================================================================
+
+/**
+ * Unlock pickup points as the round goes on and retire their NEW badges.
+ * @param {number} elapsed seconds into the round
+ * @returns {Array<object>} pickups that unlocked on this frame
+ */
+export function updatePickupUnlocks(elapsed) {
+  const fresh = [];
+  for (const p of world.pickups) {
+    if (!p.unlocked && elapsed >= p.unlockAt) {
+      p.unlocked = true;
+      p.signMesh.material.map = pickupSignTexture(C.dishes[p.dishId], true);
+      p.signMesh.material.needsUpdate = true;
+      p.badgeTime = C.newBadgeSeconds;
+      p.badgeMesh.visible = true;
+      // light the prop up so the unlock is obvious across the room
+      p.signMesh.material.emissive = new THREE.Color(C.dishes[p.dishId].color);
+      p.signMesh.material.emissiveIntensity = 0.28;
+      fresh.push(p);
+    } else if (p.badgeTime > 0) {
+      p.badgeTime -= 1 / 60;
+      if (p.badgeTime <= 0) p.badgeMesh.visible = false;
+    }
+  }
+  return fresh;
+}
+
+/** Reset every pickup back to its locked/unlocked starting state. */
+export function resetPickups() {
+  for (const p of world.pickups) {
+    const dish = C.dishes[p.dishId];
+    p.unlocked = dish.unlockAtSeconds <= 0;
+    p.badgeTime = 0;
+    p.badgeMesh.visible = false;
+    p.signMesh.material.map = pickupSignTexture(dish, p.unlocked);
+    p.signMesh.material.emissive.setHex(0x000000);
+    p.signMesh.material.emissiveIntensity = 1;
+    p.signMesh.material.needsUpdate = true;
+  }
+}
 
 /**
  * Animate the room: fan, TV, bulbs, steam, camera shake, title orbit.

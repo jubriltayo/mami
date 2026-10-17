@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { world, canvasTexture, sphGeo, cylGeo, mat } from './scene.js';
+import { world, canvasTexture, sphGeo, cylGeo, mat, drawDishIcon } from './scene.js';
 import { buildCharacter, randomStyle } from './character.js';
 
 const C = CONFIG;
@@ -24,125 +24,101 @@ const K = C.customers;
 
 const bubbleCache = new Map();
 
-/** Little food glyph per dish, drawn with canvas 2D. */
-function drawDishIcon(ctx, icon, cx, cy, r) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  switch (icon) {
-    case 'jollof': {
-      // plate of orange rice with a plantain on the side
-      ctx.fillStyle = '#efe3cd';
-      ctx.beginPath(); ctx.ellipse(0, r * 0.42, r * 1.15, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#e07a2b';
-      ctx.beginPath(); ctx.arc(0, r * 0.2, r * 0.78, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#f0c04a';
-      ctx.beginPath(); ctx.ellipse(r * 0.72, r * 0.3, r * 0.3, r * 0.16, 0.4, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-    case 'egusi': {
-      // white pounded yam with brown soup
-      ctx.fillStyle = '#efe3cd';
-      ctx.beginPath(); ctx.ellipse(0, r * 0.4, r * 1.1, r * 0.36, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#c59a5b';
-      ctx.beginPath(); ctx.ellipse(-r * 0.15, r * 0.24, r * 0.85, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#f7f2e6';
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath();
-        ctx.ellipse(r * 0.45 - i * r * 0.05, -r * 0.3 + i * r * 0.42, r * 0.34, r * 0.2, 0.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      break;
-    }
-    case 'moimoi': {
-      ctx.fillStyle = '#efe3cd';
-      ctx.beginPath(); ctx.ellipse(0, r * 0.45, r * 1.1, r * 0.36, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#cf9a52';
-      for (const [dx, dy] of [[-0.45, 0.1], [0.4, 0.14], [0, -0.4]]) {
-        ctx.beginPath(); ctx.arc(dx * r, dy * r, r * 0.42, 0, Math.PI * 2); ctx.fill();
-      }
-      break;
-    }
-    case 'suya': {
-      ctx.strokeStyle = '#c9b184';
-      ctx.lineWidth = r * 0.16;
-      for (const dy of [-0.42, 0.3]) {
-        ctx.beginPath(); ctx.moveTo(-r, dy * r); ctx.lineTo(r, dy * r); ctx.stroke();
-      }
-      ctx.fillStyle = '#8c4a2a';
-      for (const dy of [-0.42, 0.3]) {
-        for (let i = 0; i < 3; i++) {
-          ctx.beginPath();
-          ctx.arc((i - 1) * r * 0.5, dy * r, r * 0.26, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-      break;
-    }
-    case 'zobo': {
-      ctx.fillStyle = '#b0203c';
-      ctx.beginPath();
-      ctx.moveTo(-r * 0.45, -r * 0.7); ctx.lineTo(r * 0.45, -r * 0.7);
-      ctx.lineTo(r * 0.3, r * 0.8); ctx.lineTo(-r * 0.3, r * 0.8);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#f4d9a0';
-      ctx.lineWidth = r * 0.12;
-      ctx.beginPath(); ctx.moveTo(r * 0.6, -r * 0.6); ctx.lineTo(r * 0.95, -r * 0.95); ctx.stroke();
-      break;
-    }
-    case 'chapman':
-    default: {
-      ctx.fillStyle = '#d9873a';
-      ctx.beginPath();
-      ctx.moveTo(-r * 0.45, -r * 0.7); ctx.lineTo(r * 0.45, -r * 0.7);
-      ctx.lineTo(r * 0.3, r * 0.8); ctx.lineTo(-r * 0.3, r * 0.8);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#f2b134';
-      ctx.beginPath(); ctx.ellipse(0, -r * 0.7, r * 0.45, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
-      break;
-    }
-  }
-  ctx.restore();
-}
 
-/** Speech bubble with the dish icon, name and how many are still needed. */
+/**
+ * Speech bubble with the dish icon, its NAME, and how many are still needed.
+ * Drawn at 384px so the name stays legible on a phone, where the bubble ends
+ * up only ~90 CSS px across.
+ */
 function bubbleTexture(dishId, count) {
   const key = `${dishId}|${count}`;
   let tex = bubbleCache.get(key);
   if (tex) return tex;
   const dish = C.dishes[dishId];
-  tex = canvasTexture(256, 256, (ctx, w, h) => {
+  const hex = '#' + (dish.color >>> 0).toString(16).slice(-6).padStart(6, '0');
+
+  tex = canvasTexture(384, 384, (ctx, w, h) => {
     // bubble body
+    const bw = w - 28;
+    const bh = 300;
     ctx.fillStyle = '#fdfaf0';
     ctx.strokeStyle = '#3a2c1e';
-    ctx.lineWidth = 7;
+    ctx.lineWidth = 9;
     ctx.beginPath();
-    ctx.roundRect(14, 10, w - 28, 190, 34);
+    ctx.roundRect(14, 12, bw, bh, 48);
     ctx.fill();
     ctx.stroke();
     // tail
     ctx.beginPath();
-    ctx.moveTo(w / 2 - 22, 196);
-    ctx.lineTo(w / 2 + 4, 244);
-    ctx.lineTo(w / 2 + 26, 196);
+    ctx.moveTo(w / 2 - 32, bh + 6);
+    ctx.lineTo(w / 2 + 6, 378);
+    ctx.lineTo(w / 2 + 40, bh + 6);
     ctx.closePath();
     ctx.fillStyle = '#fdfaf0';
     ctx.fill();
     ctx.stroke();
     // clear the seam under the tail
     ctx.strokeStyle = '#fdfaf0';
-    ctx.lineWidth = 10;
+    ctx.lineWidth = 14;
     ctx.beginPath();
-    ctx.moveTo(w / 2 - 20, 200); ctx.lineTo(w / 2 + 24, 200); ctx.stroke();
+    ctx.moveTo(w / 2 - 30, bh + 12);
+    ctx.lineTo(w / 2 + 38, bh + 12);
+    ctx.stroke();
 
-    drawDishIcon(ctx, dish.icon, w / 2, 96, 58);
+    // colour strip along the top, in the dish colour
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(14, 12, bw, bh, 48); ctx.clip();
+    ctx.fillStyle = hex;
+    ctx.fillRect(14, 12, bw, 26);
+    ctx.restore();
 
-    ctx.fillStyle = '#2b1f14';
+    drawDishIcon(ctx, dish.icon, w / 2, 142, 78);
+
+    // NAME — wrapped onto at most two lines, sized to fit inside the bubble
+    // body (which runs from y=12 to y=312). Text must stay above y=300 or the
+    // second line gets clipped by the bubble edge.
+    ctx.fillStyle = '#241a10';
     ctx.textAlign = 'center';
-    ctx.font = 'bold 26px "Segoe UI", sans-serif';
-    ctx.fillText(dish.label.toUpperCase(), w / 2, 178);
+    ctx.textBaseline = 'middle';
+    const maxW = bw - 40;
+    const words = dish.name.toUpperCase().split(' ');
+    const widthOf = (ls, s) => {
+      ctx.font = `bold ${s}px "Segoe UI", sans-serif`;
+      return Math.max(...ls.map((t) => ctx.measureText(t).width));
+    };
+    // choose the split + size that fits in maxW
+    let lines = [words.join(' ')];
+    let size = 44;
+    if (widthOf(lines, size) > maxW && words.length > 1) {
+      // try every 2-line split point, keep the widest one that fits
+      let best = null;
+      for (let cut = 1; cut < words.length; cut++) {
+        const cand = [words.slice(0, cut).join(' '), words.slice(cut).join(' ')];
+        const wdt = widthOf(cand, size);
+        if (wdt <= maxW && (!best || wdt > best.w)) best = { lines: cand, w: wdt };
+      }
+      if (best) lines = best.lines;
+    }
+    while (widthOf(lines, size) > maxW && size > 20) {
+      size -= 2;
+    }
+    ctx.font = `bold ${size}px "Segoe UI", sans-serif`;
+    // baseline block sits in the lower third of the bubble
+    const lineH = size + 6;
+    const blockCentre = lines.length > 1 ? 264 : 272;
+    const top = blockCentre - ((lines.length - 1) * lineH) / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, w / 2, top + i * lineH));
+
+    // quantity badge, top-left, only for multi-item orders
     if (count > 1) {
       ctx.fillStyle = '#c2452f';
-      ctx.font = 'bold 30px "Segoe UI", sans-serif';
-      ctx.fillText(`×${count}`, w / 2, 66);
+      ctx.beginPath(); ctx.arc(66, 62, 44, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fdfaf0';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      ctx.fillStyle = '#fff6e6';
+      ctx.font = 'bold 54px "Segoe UI", sans-serif';
+      ctx.fillText(`×${count}`, 66, 66);
     }
   });
   bubbleCache.set(key, tex);
@@ -231,9 +207,10 @@ let nextId = 1;
  * @param {object} opts
  * @param {THREE.Scene} opts.scene
  * @param {object} opts.difficulty  () => { spawn, patience, order, speed, maxActive }
+ * @param {function} opts.orderPool  () => string[] dish ids a customer may order
  * @param {object} opts.callbacks   { onArrive, onServe, onWrong, onLoseLife, onLeave }
  */
-export function createCustomerSystem({ scene, difficulty, callbacks }) {
+export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }) {
   /** @type {Array<object>} live customers */
   let list = [];
   let spawnTimer = 2.5;
@@ -245,7 +222,10 @@ export function createCustomerSystem({ scene, difficulty, callbacks }) {
   }
 
   function makeOrder(itemCount) {
-    const keys = Object.keys(C.dishes);
+    // Only dishes that are BOTH unlocked and on the counter with a pickup
+    // point. Asking for a locked dish would be unfair — there is no way to get
+    // it. orderPool() is the single source of truth for this.
+    const keys = orderPool();
     const order = [];
     for (let i = 0; i < itemCount; i++) {
       // avoid two identical items in one order — it reads as a mistake
@@ -289,7 +269,7 @@ export function createCustomerSystem({ scene, difficulty, callbacks }) {
       map: bubbleTexture(order[0], 1), transparent: true, depthWrite: false,
     });
     const bubble = new THREE.Sprite(spriteMat);
-    bubble.scale.set(1.15, 1.15, 1);
+    bubble.scale.set(K.bubbleScale, K.bubbleScale, 1);
     bubble.position.y = 2.72;
     group.add(bubble);
 

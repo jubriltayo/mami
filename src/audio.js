@@ -179,4 +179,17 @@ export const sfx = {
     tone({ freq: 880, dur: 0.09, type: 'sine', gain: 0.07 });
     tone({ freq: 1174, dur: 0.12, type: 'sine', gain: 0.05, delay: 0.07 });
   },
+
+  /** A new dish just unlocked on the menu: bright rising arpeggio. */
+  unlock() {
+    [523, 659, 784, 1047].forEach((f, i) => {
+      tone({ freq: f, dur: 0.16, type: 'triangle', gain: 0.16, delay: i * 0.075 });
+    });
+  },
+
+  /** A plate binned / dropped: short dull thud. */
+  bin() {
+    tone({ freq: 180, to: 90, dur: 0.16, type: 'square', gain: 0.14 });
+    noise({ dur: 0.12, gain: 0.12, freq: 700, sweepTo: 160 });
+  },
 };

@@ -100,27 +100,57 @@ lights: {
   // Walkway lanes customers use to reach a seat (no pathfinding, just lanes).
   lanes: { x: -6.7, z: [-3.4, 0.9, 4.9] },
 
-  // --------------------------------------------------------------- stations
-  // 4 stations. The pan and the cooler each offer two dishes; walk in to take
-  // the currently selected one, press Space / the HUD button to cycle.
-  stations: [
-    { id: 'stove',  name: 'Jollof pot',     x: -6.0, dishes: ['jollof'] },
-    { id: 'soup',   name: 'Egusi pot',      x: -2.0, dishes: ['egusi'] },
-    { id: 'pan',    name: 'Frying pan',     x:  2.0, dishes: ['moi moi', 'suya'] },
-    { id: 'cooler', name: 'Drinks cooler',  x:  6.0, dishes: ['zobo', 'chapman'] },
-  ],
+  // ------------------------------------------------------------------ dishes
+  // THE ONE dish table. Everything else in the game reads from here:
+  // the pickup point built on the counter, the sign on it, the price, the
+  // icon in the order bubble, the HUD chip, and the order pool customers
+  // draw from. There is no hidden cycling — each dish owns exactly one
+  // pickup point at its own x along the counter.
+  //
+  //   id                 stable key, used by plates and orders
+  //   name               shown on the counter sign and in the order bubble
+  //   short              compact label for tight HUD slots
+  //   icon               key into the canvas icon painter in customers.js
+  //   price              coins before tips
+  //   color              plate / food colour
+  //   x                  pickup point along the counter
+  //   prop               which counter prop to build there
+  //   unlockAtSeconds    0 = available from the first second
+  dishes: {
+    jollof: {
+      name: 'Jollof rice', short: 'JOLLOF', icon: 'jollof', price: 8,
+      color: 0xe07a2b, x: -6.0, prop: 'potRice', unlockAtSeconds: 0,
+    },
+    egusi: {
+      name: 'Egusi + pounded yam', short: 'EGUSI', icon: 'egusi', price: 10,
+      color: 0xc59a5b, x: -3.6, prop: 'potSoup', unlockAtSeconds: 0,
+    },
+    zobo: {
+      name: 'Zobo', short: 'ZOBO', icon: 'zobo', price: 5,
+      color: 0xb0203c, x: -1.2, prop: 'jug', unlockAtSeconds: 0,
+    },
+    moimoi: {
+      name: 'Moi moi', short: 'MOIMOI', icon: 'moimoi', price: 7,
+      color: 0xcf9a52, x: 1.2, prop: 'panRolls', unlockAtSeconds: 40,
+    },
+    suya: {
+      name: 'Suya', short: 'SUYA', icon: 'suya', price: 9,
+      color: 0x8c4a2a, x: 3.6, prop: 'skewers', unlockAtSeconds: 85,
+    },
+    chapman: {
+      name: 'Chapman', short: 'CHAPMAN', icon: 'chapman', price: 6,
+      color: 0xd9873a, x: 6.0, prop: 'jug', unlockAtSeconds: 130,
+    },
+  },
+
   // How close the player must be to grab a dish.
   pickupRadius: 1.45,
 
-  // ------------------------------------------------------------------ dishes
-  dishes: {
-    'jollof':  { label: 'Jollof rice',        short: 'JOLLOF', price: 8,  color: 0xe07a2b, icon: 'jollof' },
-    'egusi':   { label: 'Egusi + pounded yam',short: 'EGUSI',  price: 10, color: 0xc59a5b, icon: 'egusi' },
-    'moi moi': { label: 'Moi moi',            short: 'MOIMOI', price: 7,  color: 0xcf9a52, icon: 'moimoi' },
-    'suya':    { label: 'Suya',               short: 'SUYA',   price: 9,  color: 0x8c4a2a, icon: 'suya' },
-    'zobo':    { label: 'Zobo',               short: 'ZOBO',   price: 5,  color: 0xb0203c, icon: 'zobo' },
-    'chapman': { label: 'Chapman',            short: 'CHAPMAN',price: 6,  color: 0xd9873a, icon: 'chapman' },
-  },
+  // How long a freshly unlocked pickup point flashes its "NEW" badge.
+  newBadgeSeconds: 7,
+
+  // The bin at the end of the counter: walk in to bin the top plate.
+  bin: { x: 7.0, z: -4.35, radius: 0.85, cooldown: 0.6 },
 
   // ------------------------------------------------------------------ player
   player: {
@@ -154,6 +184,9 @@ lights: {
     wrongDishPenalty: 5.0, // seconds of patience knocked off
     wrongDishCooldown: 0.9,
     happyDelay: 0.5,       // pause before a happy customer stands up
+    // Order bubble world size. The dish NAME has to be readable on a phone,
+    // where the bubble is only ~90 CSS px across.
+    bubbleScale: 1.55,
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,
@@ -197,3 +230,68 @@ lights: {
     muted: false,
   },
 };
+
+// ===========================================================================
+// Dish helpers — everything derives from the single CONFIG.dishes table.
+// ===========================================================================
+
+/** Every dish id, in counter order (the key order of the table). */
+export const DISH_IDS = Object.keys(CONFIG.dishes);
+
+/**
+ * The dish table as an array, with `id` folded in.
+ * @returns {Array<{id:string}>} one entry per dish
+ */
+export function dishList() {
+  return DISH_IDS.map((id) => ({ id, ...CONFIG.dishes[id] }));
+}
+
+/** One dish, or undefined if the id is unknown. */
+export function dish(id) {
+  return CONFIG.dishes[id];
+}
+
+/**
+ * Dish ids a customer is allowed to order right now: unlocked only.
+ * A dish that is still locked must never appear in an order, or the player
+ * would be asked for something they cannot pick up.
+ * @param {number} elapsed seconds into the round
+ * @returns {string[]}
+ */
+export function unlockedDishIds(elapsed) {
+  return DISH_IDS.filter((id) => CONFIG.dishes[id].unlockAtSeconds <= elapsed);
+}
+
+/**
+ * Dev check: every dish in the order table must have a pickup point, and vice
+ * versa. Called once at start-up; logs an error rather than throwing so a
+ * typo shows up loudly in the console instead of blanking the page.
+ * @param {Array<{dishId:string}>} pickups built by scene.js
+ * @returns {boolean} true when everything lines up
+ */
+export function verifyDishPickups(pickups) {
+  const pickupIds = new Set(pickups.map((p) => p.dishId));
+  const problems = [];
+
+  for (const id of DISH_IDS) {
+    if (!pickupIds.has(id)) {
+      problems.push(`dish "${id}" can be ordered but has NO pickup point on the counter`);
+    }
+  }
+  for (const p of pickups) {
+    if (!CONFIG.dishes[p.dishId]) {
+      problems.push(`pickup point "${p.dishId}" has no entry in CONFIG.dishes`);
+    }
+    const d = CONFIG.dishes[p.dishId];
+    if (d && typeof d.unlockAtSeconds !== 'number') {
+      problems.push(`dish "${p.dishId}" has no unlockAtSeconds`);
+    }
+  }
+
+  if (problems.length) {
+    console.error('[mami] DISH/PICKUP MISMATCH:\n  ' + problems.join('\n  '));
+    return false;
+  }
+  console.log(`[mami] menu check ok — ${DISH_IDS.length} dishes, ${pickups.length} pickup points`);
+  return true;
+}
