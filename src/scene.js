@@ -165,9 +165,24 @@ export function canvasTexture(w, h, draw) {
   return tex;
 }
 
-/** Wooden board with hand-written text on it. */
+// The handwritten face, shared by every decorative board.
+const HAND_FONT = '"Comic Sans MS", "Segoe Print", "Bradley Hand", cursive';
+
+// Poster type size in its 720x600 canvas. Big because the card is only ~59px
+// tall on screen — anything smaller drops under the readable-size floor.
+const POSTER_FONT = 210;
+
+/**
+ * Wooden board with hand-written text on it.
+ *
+ * The text is MEASURED and shrunk until it fits with a real margin on both
+ * sides. Handwriting faces vary wildly in width between machines, so a fixed
+ * font size that looks right on the dev box silently runs "MAMI'S BUKA" off
+ * the edge of its board elsewhere.
+ */
 function signTexture(text, {
   w = 512, h = 160, bg = '#1d6b4a', ink = '#fdf3d8', font = 64, sub = '',
+  margin = 0.08,
 } = {}) {
   return canvasTexture(w, h, (ctx) => {
     ctx.fillStyle = bg;
@@ -187,12 +202,26 @@ function signTexture(text, {
     ctx.fillStyle = ink;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${font}px "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive`;
+
+    const maxW = w * (1 - margin * 2);
+    let size = font;
+    ctx.font = `bold ${size}px ${HAND_FONT}`;
+    while (ctx.measureText(text).width > maxW && size > 12) {
+      size -= 2;
+      ctx.font = `bold ${size}px ${HAND_FONT}`;
+    }
     ctx.fillText(text, w / 2, sub ? h * 0.36 : h / 2);
+
     if (sub) {
       // Proportional, not a fixed pixel count: a subtitle must never shrink
-      // below the readable floor just because the board got shorter.
-      ctx.font = `${Math.round(font * 0.42)}px "Comic Sans MS", "Segoe Print", cursive`;
+      // below the readable floor just because the board got shorter. Fitted
+      // independently so a long subtitle cannot push the main text off.
+      let ss = Math.round(size * 0.42);
+      ctx.font = `${ss}px ${HAND_FONT}`;
+      while (ctx.measureText(sub).width > maxW && ss > 10) {
+        ss -= 1;
+        ctx.font = `${ss}px ${HAND_FONT}`;
+      }
       ctx.fillText(sub, w / 2, h * 0.72);
     }
   });
@@ -379,29 +408,33 @@ function pickupSignTexture(dish, unlocked) {
     ctx.stroke();
 
     if (!unlocked) {
-      ctx.fillStyle = 'rgba(30,27,24,0.74)';
+      // Deliberately recessive. A locked point must never compete with the
+      // three live ones for the player's eye, so the whole board is pushed
+      // well down in contrast and the SOON tag is small and dull — it only
+      // needs to be legible enough to say "not yet", not to shout.
+      ctx.fillStyle = 'rgba(24,21,19,0.88)';
       roundRect(ctx, 36, 36, w - 72, h - 72, 24);
       ctx.fill();
 
       ctx.save();
-      ctx.globalAlpha = 0.34;
-      drawDishIcon(ctx, dish.icon, w / 2, 220, 138);
+      ctx.globalAlpha = 0.22;
+      drawDishIcon(ctx, dish.icon, w / 2, 210, 116);
       ctx.restore();
 
-      // SOON ribbon. Deliberately just the word: an "unlocks in Ns" line here
-      // rendered at ~4 screen px, and the unlock is announced properly by the
-      // toast + sound when it happens, so the unreadable text is simply cut.
-      ctx.fillStyle = '#f2b134';
-      ctx.strokeStyle = '#3a2200';
-      ctx.lineWidth = 14;
-      roundRect(ctx, w / 2 - 330, 356, 660, 208, 36);
+      // SOON ribbon: smaller than the lit board's dish name and low-saturation,
+      // so a locked point never competes for the eye — but still big enough to
+      // actually read at ~8px on a laptop. (At 62px it was ~4px, i.e. ink.)
+      ctx.fillStyle = '#5c5348';
+      ctx.strokeStyle = '#2a241f';
+      ctx.lineWidth = 10;
+      roundRect(ctx, w / 2 - 230, 348, 460, 150, 30);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#3a2200';
+      ctx.fillStyle = '#b3a99a';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `900 150px ${UI_FONT}`;
-      ctx.fillText('SOON', w / 2, 462);
+      ctx.font = `800 115px ${UI_FONT}`;
+      ctx.fillText('SOON', w / 2, 424);
       return;
     }
 
@@ -484,7 +517,7 @@ function menuRailTexture() {
     ctx.fillStyle = '#fdf3d8';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 150px "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive';
+    ctx.font = `900 150px ${HAND_FONT}`;
     ctx.fillText("TODAY'S MENU", w / 2, h / 2);
   });
 }
@@ -509,12 +542,12 @@ function posterTexture() {
     ctx.fillStyle = '#fdf6e3';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 210px "Segoe UI", system-ui, sans-serif';
+    ctx.font = `900 ${POSTER_FONT}px ${UI_FONT}`;
     ctx.lineJoin = 'round';
     ctx.lineWidth = 26;
     ctx.strokeStyle = '#c2452f';
-    ctx.strokeText('BUJA', w / 2, h * 0.34);
-    ctx.fillText('BUJA', w / 2, h * 0.34);
+    ctx.strokeText('BUKA', w / 2, h * 0.34);
+    ctx.fillText('BUKA', w / 2, h * 0.34);
     ctx.strokeText('FOOD', w / 2, h * 0.66);
     ctx.fillText('FOOD', w / 2, h * 0.66);
   });
@@ -1008,9 +1041,11 @@ function buildBin(counterGroup) {
   bag.scale.set(1, 0.55, 1);
   g.add(bag);
 
-  // a little sign so it reads as a bin, not a pot
+  // A sign so it reads as a bin, not a pot. At the old 1.0x0.50 board "BIN"
+  // rendered at ~11.6px; 1.05x0.52 with a 384x192 canvas and the measuring
+  // signTexture puts it at ~14.6px on a 1366x768 laptop.
   const sign = new THREE.Mesh(planeGeo(B.signSize[0], B.signSize[1]),
-    new THREE.MeshLambertMaterial({ map: signTexture('BIN', { w: 384, h: 192, bg: '#3b3b3b', font: 128 }), flatShading: true, transparent: true }));
+    new THREE.MeshLambertMaterial({ map: signTexture('BIN', { w: 384, h: 192, bg: '#3b3b3b', font: 150, margin: 0.12 }), flatShading: true, transparent: true }));
   sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.04);
   g.add(sign);
 

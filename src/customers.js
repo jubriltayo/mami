@@ -22,124 +22,146 @@ const C = CONFIG;
 const K = C.customers;
 
 // ===========================================================================
-// Order bubble art (drawn in code, cached per dish+count)
+// Order bubble + patience bar art (drawn in code, cached)
 // ===========================================================================
 
 const bubbleCache = new Map();
-
+const bubbleAspectCache = new Map();
 
 // Bold system stack, matching the one used for the counter signs.
 const UI_FONT = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
 
-/**
- * Order bubble: BIG dish icon first, the SHORT dish name in bold underneath,
- * on a white panel with a heavy dark outline. One word, one line, as large as
- * it will go.
- *
- * The canvas is square because the sprite is square. Drawn at 512px for a
- * bubble that is ~17% of viewport height (130px on a 1366x768 laptop), so the
- * downscale is roughly 4:1 — mipmapped and anisotropically filtered, which is
- * what keeps it from turning to mush.
- */
+// The bubble art is a COMPACT strip — 152px tall, and only as wide as the dish
+// name actually needs — with the patience bar living INSIDE the panel along its
+// bottom edge.
+//
+// A square sprite at a small on-screen size is mostly empty panel and forces
+// the dish name down to ~9px. A strip puts the icon on the left where it takes
+// little height and gives the name a full single line. Sizing the canvas to the
+// MEASURED name (rather than a fixed 512) means a four-letter dish like ZOBO
+// does not drag a hundred-odd pixels of blank panel across the screen.
+//
+// Everything here is in canvas units. The sprite is drawn 0.075 of the
+// viewport tall, so at 1366x768 one canvas px is 0.379 screen px:
+//   icon 68px  -> 26px    name cap 40px -> 15px    bar 28px -> 11px
+const BUBBLE_H = 152;
+const BUBBLE_PAD = 6;
+const PANEL_TOP = 4;
+const PANEL_BOT = 148;
+const ICON_CX = 78;
+const ICON_CY = 62;
+const ICON_R = 34;
+const NAME_FONT = 55;
+const NAME_X = 124;           // left edge of the name's box
+const NAME_CY = 62;
+const NAME_MAX_W = 300;
+const BADGE_R = 24;
+// Patience bar band, inside the panel's lower third.
+const BAR_TOP = 104;
+const BAR_BOT = 132;
+
+// Offscreen 2D context used only to measure text before sizing the canvas.
+const measureCtx = document.createElement('canvas').getContext('2d');
+
 function bubbleTexture(dishId, count) {
   const key = `${dishId}|${count}`;
   let tex = bubbleCache.get(key);
   if (tex) return tex;
   const dish = C.dishes[dishId];
   const hex = '#' + (dish.color >>> 0).toString(16).slice(-6).padStart(6, '0');
+  const text = (dish.short || dish.name).toUpperCase();
 
-  tex = canvasTexture(512, 512, (ctx, w, h) => {
-    const pad = 10;
-    const bw = w - pad * 2;
-    const bh = 400;
+  // Measure first: the panel is exactly as wide as the icon + name + badge.
+  measureCtx.font = `900 ${NAME_FONT}px ${UI_FONT}`;
+  const nameW = Math.min(NAME_MAX_W, measureCtx.measureText(text).width);
+  const badgeCx = count > 1 ? NAME_X + nameW + 34 : 0;
+  // The badge carries a 10px outline, so leave room for its stroke or the
+  // right-hand edge of the circle gets shaved off by the canvas.
+  const W = Math.round(count > 1 ? badgeCx + BADGE_R + 16 : NAME_X + nameW + 12);
+  bubbleAspectCache.set(key, W / BUBBLE_H);
+
+  tex = canvasTexture(W, BUBBLE_H, (ctx, w, h) => {
+    const px = BUBBLE_PAD;
+    const py = PANEL_TOP;
+    const bw = w - BUBBLE_PAD * 2;
+    const bh = PANEL_BOT - PANEL_TOP;
 
     // --- bubble panel: white, heavy dark border -------------------------
     ctx.fillStyle = '#fffdf6';
     ctx.strokeStyle = '#1b1410';
-    ctx.lineWidth = 18;
+    ctx.lineWidth = 12;
     ctx.beginPath();
-    ctx.roundRect(pad, pad, bw, bh, 54);
+    ctx.roundRect(px, py, bw, bh, 22);
     ctx.fill();
-    ctx.stroke();
-
-    // --- tail ------------------------------------------------------------
-    ctx.beginPath();
-    ctx.moveTo(w / 2 - 46, pad + bh - 8);
-    ctx.lineTo(w / 2 + 8, 494);
-    ctx.lineTo(w / 2 + 58, pad + bh - 8);
-    ctx.closePath();
-    ctx.fillStyle = '#fffdf6';
-    ctx.fill();
-    ctx.stroke();
-    // erase the seam where the tail meets the panel
-    ctx.strokeStyle = '#fffdf6';
-    ctx.lineWidth = 22;
-    ctx.beginPath();
-    ctx.moveTo(w / 2 - 44, pad + bh - 2);
-    ctx.lineTo(w / 2 + 56, pad + bh - 2);
     ctx.stroke();
 
     // --- dish colour band down the left edge (reads at a glance) --------
     ctx.save();
-    ctx.beginPath(); ctx.roundRect(pad, pad, bw, bh, 54); ctx.clip();
+    ctx.beginPath(); ctx.roundRect(px, py, bw, bh, 22); ctx.clip();
     ctx.fillStyle = hex;
-    ctx.fillRect(pad, pad, 28, bh);
+    ctx.fillRect(px, py, 14, bh);
     ctx.restore();
 
-    // --- BIG dish icon ---------------------------------------------------
-    drawDishIcon(ctx, dish.icon, w / 2, 176, 140);
+    // --- dish icon, deliberately small ----------------------------------
+    drawDishIcon(ctx, dish.icon, ICON_CX, ICON_CY, ICON_R);
 
-    // --- SHORT name, as large as it will go ------------------------------
-    const text = (dish.short || dish.name).toUpperCase();
-    drawOutlinedText(ctx, text, w / 2, 340, bw - 44, 116, 60, {
-      halo: 24, ink: 11, fill: '#1b1410',
+    // --- SHORT name, on one line to the right of the icon ----------------
+    drawOutlinedText(ctx, text, NAME_X + nameW / 2, NAME_CY, nameW, NAME_FONT, 26, {
+      halo: 14, ink: 7, fill: '#1b1410',
     });
 
     // --- quantity badge, only for multi-item orders ---------------------
     if (count > 1) {
       ctx.fillStyle = '#c2452f';
       ctx.strokeStyle = '#fffdf6';
-      ctx.lineWidth = 14;
-      ctx.beginPath(); ctx.arc(446, 76, 66, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.arc(badgeCx, NAME_CY, BADGE_R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff6e6';
-      ctx.font = `900 76px ${UI_FONT}`;
-      ctx.fillText(`×${count}`, 446, 82);
+      // drawOutlinedText restores its own alignment, so set it explicitly or
+      // the badge text draws left-aligned out of the circle.
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `900 ${count > 9 ? 20 : 28}px ${UI_FONT}`;
+      ctx.fillText(`×${count}`, badgeCx, NAME_CY + 1);
     }
   });
   bubbleCache.set(key, tex);
   return tex;
 }
 
-// ===========================================================================
-// Patience ring geometry cache (rebuilt from 20 buckets, never per frame)
-// ===========================================================================
-
-const ARC_SEGMENTS = 20;
-const arcGeoCache = new Map();
-const RING_INNER = 0.3;
-const RING_OUTER = 0.4;
-
-function arcGeometry(fraction) {
-  const bucket = Math.max(0, Math.min(ARC_SEGMENTS, Math.round(fraction * ARC_SEGMENTS)));
-  let g = arcGeoCache.get(bucket);
-  if (!g) {
-    const theta = (bucket / ARC_SEGMENTS) * Math.PI * 2;
-    g = new THREE.RingGeometry(RING_INNER, RING_OUTER, ARC_SEGMENTS + 1, 1, -Math.PI / 2, theta);
-    g.rotateX(-Math.PI / 2);
-    g.userData.cached = true;
-    arcGeoCache.set(bucket, g);
-  }
-  return g;
+/** On-screen width:height ratio of a bubble for a given dish + count. */
+function bubbleAspectFor(dishId, count) {
+  bubbleTexture(dishId, count);
+  return bubbleAspectCache.get(`${dishId}|${count}`) || 2.4;
 }
 
-let baseRingGeo = null;
-function baseRing() {
-  if (!baseRingGeo) {
-    baseRingGeo = new THREE.RingGeometry(RING_INNER, RING_OUTER, 24);
-    baseRingGeo.rotateX(-Math.PI / 2);
-    baseRingGeo.userData.cached = true;
-  }
-  return baseRingGeo;
+// Patience bar geometry, as fractions of the bubble sprite's world height so
+// the bar can never drift away from the bubble it belongs to. The bar sits
+// INSIDE the panel, so nothing hangs below it to overlap the counter signs.
+const BAR_H = (BAR_BOT - BAR_TOP) / BUBBLE_H;
+// Centre of the bar band, expressed as an offset below the sprite's centre.
+const BAR_DROP = 0.5 - ((BAR_TOP + BAR_BOT) / 2) / BUBBLE_H;
+const BAR_W = 0.86;               // sprite width, as a fraction of bubble width
+
+/**
+ * Patience bar art: one reusable pill. The FILL is not baked in — the sprite is
+ * scaled on x and tinted per frame, so a single texture serves every customer
+ * at every fill level and the bar animates smoothly instead of stepping
+ * through pre-rendered buckets.
+ */
+let barTex = null;
+function barTexture() {
+  if (barTex) return barTex;
+  barTex = canvasTexture(400, BAR_BOT - BAR_TOP, (ctx, w, h) => {
+    ctx.fillStyle = '#fffdf6';
+    ctx.strokeStyle = '#1b1410';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(3, 2, w - 6, h - 4, (h - 4) / 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+  return barTex;
 }
 
 // green -> yellow -> red
@@ -236,30 +258,32 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     group.add(char.group);
     scene.add(group);
 
-    // patience ring above the head
-    const arcMat = new THREE.MeshBasicMaterial({
-      color: COL_GOOD.clone(), transparent: true, opacity: 0.95, side: THREE.DoubleSide,
-    });
-    const ringBase = new THREE.Mesh(baseRing(), new THREE.MeshBasicMaterial({
-      color: 0x1b1410, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+    // Patience bar, hung under the bubble. Same billboard trick as the bubble:
+    // a sprite scaled on x and tinted per frame, so one texture serves everyone.
+    const bar = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: barTexture(), transparent: true, depthWrite: false, depthTest: false,
+      color: COL_GOOD.clone(),
     }));
-    const arc = new THREE.Mesh(arcGeometry(1), arcMat);
-    ringBase.position.y = 2.14;
-    arc.position.y = 2.15;
-    group.add(ringBase, arc);
+    bar.renderOrder = 11;            // ON TOP of the bubble panel it sits inside
+    bar.visible = false;
+    group.add(bar);
 
-    // Order bubble. A THREE.Sprite always faces the camera (billboard), and its
-    // scale is re-fitted every frame in update() so it occupies a constant
+    // Order bubble. A THREE.Sprite always faces the camera (billboard), and
+    // its scale is re-fitted every frame in update() so it occupies a constant
     // fraction of the screen no matter how far away the customer is.
+    //
+    // Hidden until they are actually SEATED: while walking in, a customer can
+    // be at the very edge of the room and a screen-constant sprite gets clipped
+    // in half against the viewport edge.
     const order = makeOrder(d.order);
-    const spriteMat = new THREE.SpriteMaterial({
+    const bubble = new THREE.Sprite(new THREE.SpriteMaterial({
       map: bubbleTexture(order[0], 1), transparent: true, depthWrite: false, depthTest: false,
-    });
-    const bubble = new THREE.Sprite(spriteMat);
-    bubble.scale.set(K.bubbleScale, K.bubbleScale, 1);
+    }));
     bubble.position.y = K.bubbleHeight;
     bubble.renderOrder = 10; // always draw over people and furniture
+    bubble.visible = false;
     group.add(bubble);
+    const bubbleAspect = bubbleAspectFor(order[0], 1);
 
     const cust = {
       id: nextId++,
@@ -274,10 +298,9 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
       route: routeToSeat(seat),
       routeIdx: 0,
       speed: d.speed,
-      arc,
-      arcMat,
-      ringBase,
+      bar,
       bubble,
+      bubbleAspect,
       wrongCooldown: 0,
       sitTimer: 0,
       walkSpeedNow: 0,
@@ -289,7 +312,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     return true;
   }
 
-  /** Refresh the bubble to show the next thing this customer wants. */
+  /** Show the order bubble + patience bar for a seated customer. */
   function refreshBubble(cust) {
     const remaining = cust.order.length - cust.orderIndex;
     const need = cust.order[cust.orderIndex];
@@ -297,14 +320,25 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     if (cust.bubble.material.map !== tex) {
       cust.bubble.material.map = tex;
       cust.bubble.material.needsUpdate = true;
+      cust.bubbleAspect = bubbleAspectFor(need, remaining);
     }
     cust.bubble.visible = true;
+    cust.bar.visible = true;
+    updateBar(cust);
   }
 
-  function updateRing(cust) {
+  /** Hide both — used when the customer is done or walking away. */
+  function hideOrder(cust) {
+    cust.bubble.visible = false;
+    cust.bar.visible = false;
+  }
+
+  function updateBar(cust) {
     const f = Math.max(0, Math.min(1, cust.patience / cust.patienceMax));
-    cust.arc.geometry = arcGeometry(f);
-    cust.arcMat.color.copy(patienceColor(f));
+    cust.bar.material.color.copy(patienceColor(f));
+    // Width and left anchor are set in fitBillboard(), which owns the world
+    // size; stash the fraction here so both stay in sync from one number.
+    cust.barFrac = f;
   }
 
   function sendHome(cust, angry) {
@@ -314,9 +348,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     cust.route = cust.leaving;
     cust.routeIdx = 0;
     cust.char.setSitting(false);
-    cust.bubble.visible = false;
-    cust.ringBase.visible = false;
-    cust.arc.visible = false;
+    hideOrder(cust);
     cust.speed = angry ? K.stormSpeed : K.leaveSpeed;
     if (!angry && callbacks.onLeave) callbacks.onLeave(cust);
   }
@@ -400,9 +432,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
         cust.orderIndex = cust.order.length;
         cust.state = 'happy';
         cust.sitTimer = K.happyDelay;
-        cust.bubble.visible = false;
-        cust.ringBase.visible = false;
-        cust.arc.visible = false;
+        hideOrder(cust);
         cust.char.hop();
       } else {
         refreshBubble(cust);
@@ -416,7 +446,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     cust.wrongCooldown = K.wrongDishCooldown;
     cust.char.squash();
     cust.patienceFlash = 0.5;
-    updateRing(cust);
+    updateBar(cust);
     if (cust.patience <= 0) {
       losePatience(cust);
     }
@@ -433,7 +463,8 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
   // --- main tick -----------------------------------------------------------
 
   /**
-   * Keep a customer's order bubble at a CONSTANT size on screen.
+   * Keep a customer's order bubble AND patience bar at a CONSTANT size on
+   * screen, and hung off each other.
    *
    * A sprite in three.js always billboards to the camera, so it already faces
    * the viewer; what it does not do by default is keep its pixel size steady as
@@ -441,22 +472,43 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
    * distance to the camera and rescaling every frame gives an order bubble that
    * is exactly the same number of pixels tall whether the customer is at the
    * near table or the far one, and on both a laptop and a phone.
+   *
+   * The bar is sized as a fraction of the bubble's world height so the two can
+   * never drift apart, and its left edge is pinned so the fill drains from the
+   * right towards the left.
    */
   const bubbleWorld = new THREE.Vector3();
-  function fitBubbleToScreen(c) {
+  function fitBillboard(c) {
     if (!c.bubble.visible) return;
     const cam = getCamera();
     if (!cam) return;
     c.bubble.getWorldPosition(bubbleWorld);
-    // Phones get a slightly smaller share of the screen so a few seated
-    // customers do not blanket the room; the dish name still reads ~18px.
-    const narrow = window.innerWidth < K.bubbleScreenNarrowAt;
-    const fraction = narrow ? K.bubbleScreenFractionNarrow : K.bubbleScreenFraction;
+    const fraction = window.innerWidth < K.bubbleScreenNarrowAt
+      ? K.bubbleScreenFractionNarrow
+      : K.bubbleScreenFraction;
     const size = screenSizeFor(fraction, cam.position.distanceTo(bubbleWorld));
     // Guard: a NaN scale makes a sprite vanish with no error, which is a
     // miserable thing to debug. Fall back to a sane world size instead.
-    const s = Number.isFinite(size) && size > 0 ? size : K.bubbleScale;
-    c.bubble.scale.set(s, s, 1);
+    const h = Number.isFinite(size) && size > 0 ? size : 1.2;
+    const aspect = c.bubbleAspect || K.bubbleAspect;
+
+    c.bubble.scale.set(h * aspect, h, 1);
+
+    if (c.bar.visible) {
+      const bh = h * BAR_H;                    // bar world height, ~9px
+      const bwFull = h * aspect * BAR_W;       // bar world width, full
+      const f = c.barFrac == null ? 1 : c.barFrac;
+      // BAR_DROP is the bar's offset from the bubble's centre in sprite-local
+      // units (negative = below centre), so it is ADDED to the bubble's height.
+      // Pin the bar's LEFT edge too, so the fill drains from right to left.
+      c.bar.position.set(-bwFull / 2 + bwFull * f / 2, K.bubbleHeight + h * BAR_DROP, 0);
+      c.bar.scale.set(bwFull * f, bh, 1);
+      // Same NaN guard as the bubble: a bad fraction would silently blank it.
+      if (!Number.isFinite(c.bar.scale.x) || c.bar.scale.x <= 0) {
+        c.bar.scale.set(bwFull, bh, 1);
+        c.bar.position.x = 0;
+      }
+    }
   }
 
   function update(dt, playerPos) {
@@ -497,7 +549,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
           c.patience -= dt;
           if (c.patience <= 0) losePatience(c);
         }
-        updateRing(c);
+        updateBar(c);
         // little idle fidget
         c.char.update(dt, 0, C.player.walkCycle);
       } else if (c.state === 'happy') {
@@ -509,7 +561,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
 
       if (c.state !== 'gone') {
         c.char.update(dt, c.walkSpeedNow, C.player.walkCycle);
-        fitBubbleToScreen(c);
+        fitBillboard(c);
       }
     }
 

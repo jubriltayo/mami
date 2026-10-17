@@ -95,6 +95,7 @@ canvas { display: block; width: 100%; height: 100%; }
   border-radius: 12px;
   padding: clamp(5px, 1.6vw, 8px) clamp(7px, 2.2vw, 12px);
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display: flex; flex-direction: column; gap: 2px;
 }
 /* Readability targets, in CSS px as actually rendered:
      numbers  >= 18px   |   labels / signs  >= 14px   |   order text >= 16px
@@ -109,58 +110,65 @@ canvas { display: block; width: 100%; height: 100%; }
 #hearts { font-size: clamp(22px, 3vw, 32px); letter-spacing: 4px; }
 .heart-off { opacity: .22; }
 
-/* carry stack readout: icon + dish name per plate.
-   Sizes are viewport-relative so the panel scales up on a phone without
-   eating the whole screen on a laptop. */
+/* --- carry tray: deliberately TINY -------------------------------------
+   Three icon slots plus DROP, sized to stay out of the game's way. It used to
+   be a 92px-wide slot per plate, which on a phone pushed the whole left side
+   of the counter behind the HUD.
+
+   The dish NAMES moved out of here on purpose: at a 42px slot a seven-letter
+   name like CHAPMAN cannot be drawn at a readable size — it truncates to
+   "CHAP…". Each slot is now the dish's colour-coded ICON (already distinct per
+   dish), with the name kept in the slot's tooltip and, at full readable size,
+   on the hint bar which already lists everything you are carrying.
+   DROP is the only tappable control here and it keeps a 48px invisible hit
+   area even though the button itself is ~30px. */
 #carrybar {
-  display: flex; align-items: center; gap: clamp(8px, 1.2vw, 14px);
+  display: flex; align-items: center; gap: 8px;
   background: rgba(12,9,6,.55);
   border: 2px solid rgba(253,243,216,.18);
-  border-radius: 12px;
-  padding: clamp(5px, 1.6vw, 8px) clamp(7px, 2.2vw, 12px);
+  border-radius: 10px;
+  padding: 4px 6px;
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
-#carry { display: flex; gap: clamp(4px, 0.8vw, 8px); align-items: stretch; }
+#carry { display: flex; gap: 3px; align-items: stretch; }
 .slot {
-  width: clamp(58px, 15vw, 92px);
-  min-height: clamp(48px, 12vw, 66px); border-radius: 9px;
+  width: 42px; height: 42px; border-radius: 8px;
   border: 2px dashed rgba(253,243,216,.34);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; padding: 3px;
-  color: #241505; opacity: .3; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  padding: 2px;
+  color: #241505; opacity: .3;
 }
 .slot.filled { opacity: 1; border-style: solid; border-color: rgba(0,0,0,.4); }
 .slot.top { box-shadow: 0 0 0 2px var(--gold); }
 .slot .icon {
-  width: clamp(24px, 6.5vw, 34px); height: clamp(24px, 6.5vw, 34px);
+  width: 30px; height: 30px;
   background-size: contain; background-repeat: no-repeat; background-position: center;
   filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
 }
-.slot .nm {
-  font-size: clamp(12px, 2.4vw, 15px); font-weight: 900; letter-spacing: 0; line-height: 1.05;
-  text-align: center; max-width: 100%; overflow: hidden;
-  white-space: nowrap; text-overflow: ellipsis;
-}
-.slot.filled .icon { display: block; }
-.slot:not(.filled) .icon, .slot:not(.filled) .nm { display: none; }
+.slot .nm { display: none; }
 
 /* DROP button — always available, essential on touch */
 #drop {
+  position: relative;
   pointer-events: auto; cursor: pointer;
   font-family: var(--font); font-weight: 900;
-  font-size: clamp(13px, 1.6vw, 17px); letter-spacing: .08em;
+  font-size: clamp(12px, 1.1vw, 14px); letter-spacing: .06em;
   color: #2a1a10; background: #e8dcc4;
-  border: 2px solid rgba(0,0,0,.35); border-radius: 9px;
-  padding: clamp(6px, 0.9vw, 9px) clamp(10px, 1.4vw, 14px);
-  margin-top: clamp(6px, 0.9vw, 9px);
-  display: inline-flex; align-items: center; gap: 6px;
+  border: 2px solid rgba(0,0,0,.35); border-radius: 8px;
+  padding: 5px 9px;
+  display: inline-flex; align-items: center; gap: 5px;
   transition: transform .08s ease, opacity .15s ease;
+}
+/* Invisible 48px touch target around a ~30px button. */
+#drop::before {
+  content: ''; position: absolute; left: 50%; top: 50%;
+  width: 48px; height: 48px; margin: -24px 0 0 -24px;
 }
 #drop:active { transform: translateY(2px); }
 #drop.empty { opacity: .35; }
 #drop kbd {
-  font-family: var(--font); font-size: clamp(10px, 1.2vw, 13px); font-weight: 900;
-  background: rgba(0,0,0,.18); border-radius: 4px; padding: 2px 5px;
+  font-family: var(--font); font-size: 10px; font-weight: 900;
+  background: rgba(0,0,0,.18); border-radius: 3px; padding: 1px 4px;
 }
 
 /* mute + hint */
@@ -252,28 +260,33 @@ canvas { display: block; width: 100%; height: 100%; }
 
 /* ------------------------------------------------------------- narrow screens
    On a phone the counter sits across the top of the screen, so a top-left HUD
-   panel covers the jollof sign. Move the carry bar down to the empty strip
-   under the room, widen the slots so names stop truncating ("CHAP..."), and
-   let the hint wrap instead of running off the right edge. */
+   panel covers the jollof sign. Move the carry tray down into the empty strip
+   under the room and shrink it further, and let the hint wrap instead of
+   running off the right edge. */
 @media (max-width: 620px) {
+  /* Stacked, the stats panel is a tall block sitting right on top of the
+     back-wall heading. Laying it out as one row halves its height and keeps
+     the counter area clear. */
+  .hud-panel {
+    flex-direction: row; align-items: center; gap: 14px;
+    padding: 5px 10px;
+  }
   #carrybar {
     position: fixed;
     left: clamp(8px, 2vw, 14px);
-    bottom: clamp(58px, 9vh, 76px);
-    gap: 9px;
-    padding: 6px 9px;
+    bottom: clamp(8px, 1.5vh, 14px);
+    gap: 7px;
+    padding: 4px 6px;
   }
-  #carrybar .slot {
-    width: 94px;
-    min-height: 56px;
-    padding: 3px;
-  }
-  #carrybar .slot .nm { font-size: 13px; letter-spacing: -.2px; }
-  #drop { margin-top: 0; padding: 7px 10px; }
-  #drop kbd { display: none; }
+  #carrybar .slot { width: 36px; height: 36px; }
+  #carrybar .slot .icon { width: 26px; height: 26px; }
+  #drop { font-size: 12px; padding: 5px 8px; gap: 4px; }
+  /* Sit ABOVE the tray rather than behind it. The hint's height varies with
+     how much it has to say, so it is anchored by the tray's fixed 48px
+     footprint instead of the two guessing at each other. */
   #hint {
     white-space: normal;
-    bottom: clamp(8px, 1.5vh, 14px);
+    bottom: 66px;
     font-size: 14px;
     line-height: 1.3;
   }
@@ -542,6 +555,9 @@ export function initUI(handlers) {
         s.style.background = hexCss(d.color);
         s.children[0].style.backgroundImage = `url(${dishIconDataUrl(dishId)})`;
         s.children[1].textContent = d.short || d.name.slice(0, 7).toUpperCase();
+        // The slot is icon-only now (see the CSS), so the name lives here for
+        // mouse users and in the hint bar for everyone else.
+        s.title = d.name + (i === stack.length - 1 ? ' (top of stack)' : '');
       });
       // grey the DROP button out when there is nothing to drop
       dropBtn.className = stack.length ? '' : 'empty';

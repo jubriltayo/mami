@@ -165,7 +165,9 @@ lights: {
 
   // The bin at the end of the counter: walk in to bin the top plate. Sits at
   // x=6.95 with the pickup signs stopping at x=5.9 so the two boards clear.
-  bin: { x: 6.95, z: -4.35, radius: 0.85, cooldown: 0.6, signSize: [1.0, 0.5] },
+  // signSize keeps a ~2:1 aspect matching the 384x192 canvas, which is what
+  // puts "BIN" at ~14.6px cap height on a 1366x768 laptop.
+  bin: { x: 6.95, z: -4.35, radius: 0.85, cooldown: 0.6, signSize: [1.05, 0.52] },
 
   // ------------------------------------------------------------------ player
   player: {
@@ -200,17 +202,29 @@ lights: {
     wrongDishPenalty: 5.0, // seconds of patience knocked off
     wrongDishCooldown: 0.9,
     happyDelay: 0.5,       // pause before a happy customer stands up
-    // Order bubble. fitBubbleToScreen() in customers.js re-fits the sprite every
+    // Order bubble. fitBillboard() in customers.js re-fits the sprite every
     // frame so it occupies this fraction of the VIEWPORT HEIGHT whatever the
-    // camera distance — an order stays readable at the far table and on a
-    // phone. bubbleScale is only the first-frame placeholder.
-    bubbleScreenFraction: 0.16,
-    // Narrow screens get a slightly smaller bubble so a handful of seated
-    // customers do not blanket the room. Order text still lands ~18px.
-    bubbleScreenFractionNarrow: 0.135,
+    // camera distance — an order is the same number of pixels tall at the near
+    // table and the far one, on a laptop and a phone.
+    //
+    // 0.075 puts the whole sprite at ~58px on a 768px laptop. The bubble art
+    // is deliberately WIDE and SHORT (512x224, icon left / name right) rather
+    // than square, because a square sprite wastes most of its area on empty
+    // panel and forced the dish name down to ~9px once the sprite got small.
+    bubbleScreenFraction: 0.075,
     bubbleScreenNarrowAt: 620,   // CSS px, matches the ui.js media query
-    bubbleScale: 1.6,
-    bubbleHeight: 2.95,    // world y above the customer's feet
+    bubbleScreenFractionNarrow: 0.075,
+    // Fallback width:height ratio of the bubble art, used before the first
+    // per-dish aspect is measured. Real bubbles size their canvas to the dish
+    // name, so this is only a safety net.
+    bubbleAspect: 2.4,
+    // Height of the seated customer's head world-space is ~1.85 and the
+    // counter sign row occupies the screen band just above them, so a bubble
+    // has to sit high enough that a BACK-ROW customer's bubble clears the
+    // pickup signs entirely, while still reading as belonging to them. 2.9 puts
+    // the panel's bottom edge right on the sign row's top edge (~29px above the
+    // head on screen).
+    bubbleHeight: 2.9,     // world y above the customer's feet
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,
