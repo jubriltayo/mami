@@ -31,34 +31,39 @@ const bubbleAspectCache = new Map();
 // Bold system stack, matching the one used for the counter signs.
 const UI_FONT = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
 
-// The bubble art is a COMPACT strip — 152px tall, and only as wide as the dish
+// The bubble art is a TIDY STRIP — 152px tall, and only as wide as the dish
 // name actually needs — with the patience bar living INSIDE the panel along its
 // bottom edge.
 //
 // A square sprite at a small on-screen size is mostly empty panel and forces
 // the dish name down to ~9px. A strip puts the icon on the left where it takes
-// little height and gives the name a full single line. Sizing the canvas to the
-// MEASURED name (rather than a fixed 512) means a four-letter dish like ZOBO
-// does not drag a hundred-odd pixels of blank panel across the screen.
+// little height and gives the name a full single line. The canvas width is
+// MEASURED per dish (with a floor), so ZOBO does not drag a hundred-odd pixels
+// of blank panel across the counter, while CHAPMAN still gets the width it
+// needs instead of spilling over the edge.
 //
-// Everything here is in canvas units. The sprite is drawn 0.075 of the
-// viewport tall, so at 1366x768 one canvas px is 0.379 screen px:
-//   icon 68px  -> 26px    name cap 40px -> 15px    bar 28px -> 11px
+// Everything here is in canvas units. The sprite is drawn 0.049 of a 768px
+// viewport tall, so at 1366x768 one canvas px is 0.25 screen px:
+//   icon 72px -> 18px   name cap 45px -> 11px   bar 24px -> 6px
+// and the whole bubble is 87-109px wide.
 const BUBBLE_H = 152;
 const BUBBLE_PAD = 6;
-const PANEL_TOP = 4;
-const PANEL_BOT = 148;
-const ICON_CX = 78;
-const ICON_CY = 62;
-const ICON_R = 34;
-const NAME_FONT = 55;
-const NAME_X = 124;           // left edge of the name's box
-const NAME_CY = 62;
-const NAME_MAX_W = 300;
-const BADGE_R = 24;
+const PANEL_TOP = 6;
+const PANEL_BOT = 146;
+const ICON_CX = 52;
+const ICON_CY = 52;
+const ICON_R = 36;
+const NAME_FONT = 62;
+const NAME_X = 108;           // left edge of the name's region
+const NAME_CY = 52;
+const NAME_MAX_W = 300;       // long names squeeze/shrink to fit, never spill
+const NAME_TRAIL = 26;        // canvas of clear space after the name
+const NAME_LEAD = 12;         // canvas of clear space before the name region
+const MIN_W = 350;            // floor, so short names still look deliberate
+const BADGE_R = 16;
 // Patience bar band, inside the panel's lower third.
 const BAR_TOP = 104;
-const BAR_BOT = 132;
+const BAR_BOT = 128;
 
 // Offscreen 2D context used only to measure text before sizing the canvas.
 const measureCtx = document.createElement('canvas').getContext('2d');
@@ -70,14 +75,16 @@ function bubbleTexture(dishId, count) {
   const dish = C.dishes[dishId];
   const hex = '#' + (dish.color >>> 0).toString(16).slice(-6).padStart(6, '0');
   const text = (dish.short || dish.name).toUpperCase();
+  const multi = count > 1;
 
-  // Measure first: the panel is exactly as wide as the icon + name + badge.
+  // Measure first, so the panel is exactly as wide as icon + name + badge.
+  // A multi-item order reserves its badge's width BEFORE the name is placed,
+  // so the badge can never end up sitting on top of the last letter.
+  const badgeSpace = multi ? BADGE_R * 2 + 14 : 0;
+  const nameCap = multi ? NAME_MAX_W - 20 : NAME_MAX_W;
   measureCtx.font = `900 ${NAME_FONT}px ${UI_FONT}`;
-  const nameW = Math.min(NAME_MAX_W, measureCtx.measureText(text).width);
-  const badgeCx = count > 1 ? NAME_X + nameW + 34 : 0;
-  // The badge carries a 10px outline, so leave room for its stroke or the
-  // right-hand edge of the circle gets shaved off by the canvas.
-  const W = Math.round(count > 1 ? badgeCx + BADGE_R + 16 : NAME_X + nameW + 12);
+  const nameW = Math.min(nameCap, measureCtx.measureText(text).width);
+  const W = Math.round(Math.max(MIN_W, NAME_X + nameW + badgeSpace + NAME_TRAIL));
   bubbleAspectCache.set(key, W / BUBBLE_H);
 
   tex = canvasTexture(W, BUBBLE_H, (ctx, w, h) => {
@@ -85,43 +92,54 @@ function bubbleTexture(dishId, count) {
     const py = PANEL_TOP;
     const bw = w - BUBBLE_PAD * 2;
     const bh = PANEL_BOT - PANEL_TOP;
+    const panelRight = px + bw;
 
     // --- bubble panel: white, heavy dark border -------------------------
     ctx.fillStyle = '#fffdf6';
     ctx.strokeStyle = '#1b1410';
-    ctx.lineWidth = 12;
+    ctx.lineWidth = 10;
     ctx.beginPath();
-    ctx.roundRect(px, py, bw, bh, 22);
+    ctx.roundRect(px, py, bw, bh, 20);
     ctx.fill();
     ctx.stroke();
 
     // --- dish colour band down the left edge (reads at a glance) --------
     ctx.save();
-    ctx.beginPath(); ctx.roundRect(px, py, bw, bh, 22); ctx.clip();
+    ctx.beginPath(); ctx.roundRect(px, py, bw, bh, 20); ctx.clip();
     ctx.fillStyle = hex;
-    ctx.fillRect(px, py, 14, bh);
+    ctx.fillRect(px, py, 11, bh);
     ctx.restore();
 
     // --- dish icon, deliberately small ----------------------------------
     drawDishIcon(ctx, dish.icon, ICON_CX, ICON_CY, ICON_R);
 
-    // --- SHORT name, on one line to the right of the icon ----------------
-    drawOutlinedText(ctx, text, NAME_X + nameW / 2, NAME_CY, nameW, NAME_FONT, 26, {
-      halo: 14, ink: 7, fill: '#1b1410',
-    });
+    // --- SHORT name, ONE line, in the region between icon and badge.
+    // The region is bounded on both sides so the name can never touch the
+    // icon, the badge or the panel edge; drawOutlinedText squeezes
+    // horizontally before it shrinks the font, so a long name keeps its
+    // cap height.
+    const regionL = NAME_X;
+    const regionR = panelRight - NAME_LEAD - badgeSpace;
+    drawOutlinedText(
+      ctx, text,
+      (regionL + regionR) / 2, NAME_CY,
+      regionR - regionL, NAME_FONT, 40,
+      { halo: 13, ink: 6, fill: '#1b1410' },
+    );
 
     // --- quantity badge, only for multi-item orders ---------------------
-    if (count > 1) {
+    if (multi) {
+      const badgeCx = regionR + badgeSpace / 2;
       ctx.fillStyle = '#c2452f';
       ctx.strokeStyle = '#fffdf6';
-      ctx.lineWidth = 8;
+      ctx.lineWidth = 6;
       ctx.beginPath(); ctx.arc(badgeCx, NAME_CY, BADGE_R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff6e6';
       // drawOutlinedText restores its own alignment, so set it explicitly or
       // the badge text draws left-aligned out of the circle.
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `900 ${count > 9 ? 20 : 28}px ${UI_FONT}`;
+      ctx.font = `900 ${count > 9 ? 13 : 19}px ${UI_FONT}`;
       ctx.fillText(`×${count}`, badgeCx, NAME_CY + 1);
     }
   });
@@ -135,13 +153,10 @@ function bubbleAspectFor(dishId, count) {
   return bubbleAspectCache.get(`${dishId}|${count}`) || 2.4;
 }
 
-// Patience bar geometry, as fractions of the bubble sprite's world height so
-// the bar can never drift away from the bubble it belongs to. The bar sits
-// INSIDE the panel, so nothing hangs below it to overlap the counter signs.
 const BAR_H = (BAR_BOT - BAR_TOP) / BUBBLE_H;
 // Centre of the bar band, expressed as an offset below the sprite's centre.
 const BAR_DROP = 0.5 - ((BAR_TOP + BAR_BOT) / 2) / BUBBLE_H;
-const BAR_W = 0.86;               // sprite width, as a fraction of bubble width
+const BAR_W = 0.84;               // sprite width, as a fraction of bubble width
 
 /**
  * Patience bar art: one reusable pill. The FILL is not baked in — the sprite is
@@ -279,7 +294,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     const bubble = new THREE.Sprite(new THREE.SpriteMaterial({
       map: bubbleTexture(order[0], 1), transparent: true, depthWrite: false, depthTest: false,
     }));
-    bubble.position.y = K.bubbleHeight;
+    bubble.position.set(K.bubbleOffsetX, K.bubbleHeightShallow, 0);
     bubble.renderOrder = 10; // always draw over people and furniture
     bubble.visible = false;
     group.add(bubble);
@@ -492,16 +507,26 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     const h = Number.isFinite(size) && size > 0 ? size : 1.2;
     const aspect = c.bubbleAspect || K.bubbleAspect;
 
+    // Back-row bubbles ride ABOVE the counter sign row; everyone else's sits
+    // BELOW it, so a bubble never lands on a pickup sign at all.
+    const y = c.group.position.z <= K.bubbleDeepZ
+      ? K.bubbleHeightDeep
+      : K.bubbleHeightShallow;
+    c.bubble.position.y = y;
     c.bubble.scale.set(h * aspect, h, 1);
 
     if (c.bar.visible) {
-      const bh = h * BAR_H;                    // bar world height, ~9px
+      const bh = h * BAR_H;                    // bar world height, ~6px
       const bwFull = h * aspect * BAR_W;       // bar world width, full
       const f = c.barFrac == null ? 1 : c.barFrac;
       // BAR_DROP is the bar's offset from the bubble's centre in sprite-local
       // units (negative = below centre), so it is ADDED to the bubble's height.
       // Pin the bar's LEFT edge too, so the fill drains from right to left.
-      c.bar.position.set(-bwFull / 2 + bwFull * f / 2, K.bubbleHeight + h * BAR_DROP, 0);
+      c.bar.position.set(
+        K.bubbleOffsetX - bwFull / 2 + bwFull * f / 2,
+        y + h * BAR_DROP,
+        0,
+      );
       c.bar.scale.set(bwFull * f, bh, 1);
       // Same NaN guard as the bubble: a bad fraction would silently blank it.
       if (!Number.isFinite(c.bar.scale.x) || c.bar.scale.x <= 0) {

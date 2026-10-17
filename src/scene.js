@@ -992,12 +992,17 @@ function buildPickups(counterGroup) {
     const sign = new THREE.Mesh(planeGeo(C.sign.size[0], C.sign.size[1]),
       new THREE.MeshLambertMaterial({ map: pickupSignTexture(dish, false), flatShading: true, transparent: true }));
     sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.06);
+    // The material is transparent, so it lands in the same render list as the
+    // order bubbles. Sorting it AFTER them means a customer's bubble can never
+    // hide which pickup serves which dish — the signs always win.
+    sign.renderOrder = 20;
     g.add(sign);
 
     // "NEW" badge, shown briefly when this pickup unlocks.
     const badge = new THREE.Mesh(planeGeo(C.sign.badgeSize[0], C.sign.badgeSize[1]),
       new THREE.MeshLambertMaterial({ map: newBadgeTexture(), flatShading: true, transparent: true }));
     badge.position.set(C.sign.size[0] * 0.42, K.height + 0.28, K.depth / 2 + 0.07);
+    badge.renderOrder = 21;
     badge.visible = false;
     g.add(badge);
 

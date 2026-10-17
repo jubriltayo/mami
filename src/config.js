@@ -207,24 +207,26 @@ lights: {
     // camera distance — an order is the same number of pixels tall at the near
     // table and the far one, on a laptop and a phone.
     //
-    // 0.075 puts the whole sprite at ~58px on a 768px laptop. The bubble art
-    // is deliberately WIDE and SHORT (512x224, icon left / name right) rather
-    // than square, because a square sprite wastes most of its area on empty
-    // panel and forced the dish name down to ~9px once the sprite got small.
-    bubbleScreenFraction: 0.075,
+    // 0.049 puts the whole sprite at ~38px on a 768px laptop and ~41px on a
+    // 844px phone; the art is a strip 87-109px wide. Together with the narrow
+    // fraction below this keeps the dish name at ~11px cap height.
+    bubbleScreenFraction: 0.049,
     bubbleScreenNarrowAt: 620,   // CSS px, matches the ui.js media query
-    bubbleScreenFractionNarrow: 0.075,
+    bubbleScreenFractionNarrow: 0.045,
     // Fallback width:height ratio of the bubble art, used before the first
     // per-dish aspect is measured. Real bubbles size their canvas to the dish
     // name, so this is only a safety net.
-    bubbleAspect: 2.4,
-    // Height of the seated customer's head world-space is ~1.85 and the
-    // counter sign row occupies the screen band just above them, so a bubble
-    // has to sit high enough that a BACK-ROW customer's bubble clears the
-    // pickup signs entirely, while still reading as belonging to them. 2.9 puts
-    // the panel's bottom edge right on the sign row's top edge (~29px above the
-    // head on screen).
-    bubbleHeight: 2.9,     // world y above the customer's feet
+    bubbleAspect: 2.7,
+    // The counter sign row occupies a fixed screen band and the seats sit at
+    // four depths (z = -2.35, -0.05, 1.65, 3.95), so no single bubble height
+    // keeps every bubble out of that band. Instead the back row's bubble sits
+    // ABOVE the signs and everyone else's sits BELOW them, which also keeps
+    // the natural depth order — neither is ever drawn over the other.
+    bubbleHeightDeep: 2.62,     // world y, for seats behind bubbleDeepZ
+    bubbleHeightShallow: 2.46,  // world y, for every other seat
+    bubbleDeepZ: -1.8,          // seat z at or below this counts as back row
+    // Slightly to the side of the head, so a bubble never looks like a hat.
+    bubbleOffsetX: 0.35,
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,
