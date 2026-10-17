@@ -15,6 +15,10 @@ import { initUI } from './ui.js';
 import * as audio from './audio.js';
 import { game, STATE, startRound, tick, difficulty, serveValue, addCoins, addServed, loseLife, onGameOverHook } from './game.js';
 
+// Read ?test=1 from the URL and enable test mode
+const urlParams = new URLSearchParams(window.location.search);
+CONFIG.testMode = urlParams.get('test') === '1';
+
 const C = CONFIG;
 
 // ===========================================================================
@@ -531,11 +535,31 @@ let lastFrameTime = performance.now();
 let hudTimer = 0;
 let elapsed = 0;
 
+// --- frame rate tracking ---------------------------------------------------
+// Rolling average over the last ~30 frames, plus the worst frame seen, so a
+// stutter during the opening seconds can't hide inside a long average.
+let lastFps = 0;
+let fpsAccum = 0;
+let fpsFrames = 0;
+let fpsWindowStart = performance.now();
+
+function trackFps(now) {
+  fpsAccum += now - (fpsWindowStart || now);
+  fpsFrames++;
+  if (fpsAccum >= 500) {
+    lastFps = Math.round((fpsFrames * 1000) / fpsAccum);
+    fpsAccum = 0;
+    fpsFrames = 0;
+  }
+  fpsWindowStart = now;
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
 
   let dt = (now - lastFrameTime) / 1000;
   lastFrameTime = now;
+  trackFps(now);
   // a long frame (tab switch, GC) must not teleport anyone
   dt = Math.min(dt, 0.05);
 
@@ -596,3 +620,48 @@ if (!getCurrentUser().style) setGuestStyle(randomStyle());
 ui.setBest(game.best);
 ui.showHud(false);
 requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------------------
+// Test mode hook (?test=1): exposes live state so the game loop can be driven
+// and asserted from an automated browser test. Never present in normal play.
+// ---------------------------------------------------------------------------
+if (CONFIG.testMode) {
+  window.__mami = {
+    game,
+    config: C,
+    /** Live snapshot of the things a test wants to assert on. */
+    snapshot() {
+      return {
+        state: game.state,
+        lives: game.lives,
+        coins: game.coins,
+        served: game.served,
+        lost: game.lost,
+        elapsed: +game.elapsed.toFixed(2),
+        carry: carry.map((p) => p.userData.dish),
+        customers: customers.all.map((c) => ({
+          state: c.state,
+          dish: c.order[c.orderIndex] || null,
+          order: c.order.slice(),
+          orderIndex: c.orderIndex,
+          patience: +c.patience.toFixed(2),
+          patienceMax: c.patienceMax,
+        })),
+        fps: lastFps,
+      };
+    },
+    /** Give the player plates instantly, for delivery tests. */
+    grant(dishIds) {
+      for (const id of dishIds) takeDish(id);
+      return carry.map((p) => p.userData.dish);
+    },
+    /** Teleport the player, for collision / reach tests. */
+    place(x, z) {
+      player.group.position.set(x, 0, z);
+      velocity.set(0, 0, 0);
+      return [player.group.position.x, player.group.position.z];
+    },
+    start: beginRound,
+  };
+  console.log('[mami] test mode active — window.__mami ready');
+}

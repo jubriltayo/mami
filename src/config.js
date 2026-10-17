@@ -4,6 +4,11 @@
 // ---------------------------------------------------------------------------
 
 export const CONFIG = {
+  // Dev switch. main.js sets this from the URL query string (?test=1) before
+  // anything else runs. When on, patience is crushed so a full round —
+  // 3 storm-outs, game over, Play again — plays out in seconds.
+  testMode: false,
+
   // ---------------------------------------------------------------- renderer
   renderer: {
     pixelRatioCap: 2,      // hard cap so phones don't render 3x and drop frames

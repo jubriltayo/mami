@@ -175,6 +175,21 @@ const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
  *            maxActive:number, level:number}}
  */
 export function difficulty() {
+  // Test mode: crush patience and speed up arrivals so a full round —
+  // customers storming off, lives draining to zero, game over, Play again —
+  // plays out in well under a minute, while still being observable one life
+  // at a time (the spawn gap is longer than the patience, so lives do not all
+  // drop on the same frame).
+  if (CONFIG.testMode) {
+    return {
+      spawn: 6,
+      patience: 4,
+      order: 1,
+      speed: 4,
+      maxActive: 3,
+      level: 1,
+    };
+  }
   const levels = CONFIG.customers.levels;
   let i = 0;
   while (i < levels.length - 1 && game.elapsed >= levels[i + 1].at) i++;
