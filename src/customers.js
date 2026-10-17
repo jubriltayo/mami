@@ -12,7 +12,10 @@
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { world, canvasTexture, sphGeo, cylGeo, mat, drawDishIcon } from './scene.js';
+import {
+  world, canvasTexture, sphGeo, cylGeo, mat, drawDishIcon,
+  screenSizeFor, getCamera, drawOutlinedText,
+} from './scene.js';
 import { buildCharacter, randomStyle } from './character.js';
 
 const C = CONFIG;
@@ -25,10 +28,18 @@ const K = C.customers;
 const bubbleCache = new Map();
 
 
+// Bold system stack, matching the one used for the counter signs.
+const UI_FONT = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+
 /**
- * Speech bubble with the dish icon, its NAME, and how many are still needed.
- * Drawn at 384px so the name stays legible on a phone, where the bubble ends
- * up only ~90 CSS px across.
+ * Order bubble: BIG dish icon first, the SHORT dish name in bold underneath,
+ * on a white panel with a heavy dark outline. One word, one line, as large as
+ * it will go.
+ *
+ * The canvas is square because the sprite is square. Drawn at 512px for a
+ * bubble that is ~17% of viewport height (130px on a 1366x768 laptop), so the
+ * downscale is roughly 4:1 — mipmapped and anisotropically filtered, which is
+ * what keeps it from turning to mush.
  */
 function bubbleTexture(dishId, count) {
   const key = `${dishId}|${count}`;
@@ -37,88 +48,62 @@ function bubbleTexture(dishId, count) {
   const dish = C.dishes[dishId];
   const hex = '#' + (dish.color >>> 0).toString(16).slice(-6).padStart(6, '0');
 
-  tex = canvasTexture(384, 384, (ctx, w, h) => {
-    // bubble body
-    const bw = w - 28;
-    const bh = 300;
-    ctx.fillStyle = '#fdfaf0';
-    ctx.strokeStyle = '#3a2c1e';
-    ctx.lineWidth = 9;
+  tex = canvasTexture(512, 512, (ctx, w, h) => {
+    const pad = 10;
+    const bw = w - pad * 2;
+    const bh = 400;
+
+    // --- bubble panel: white, heavy dark border -------------------------
+    ctx.fillStyle = '#fffdf6';
+    ctx.strokeStyle = '#1b1410';
+    ctx.lineWidth = 18;
     ctx.beginPath();
-    ctx.roundRect(14, 12, bw, bh, 48);
+    ctx.roundRect(pad, pad, bw, bh, 54);
     ctx.fill();
-    ctx.stroke();
-    // tail
-    ctx.beginPath();
-    ctx.moveTo(w / 2 - 32, bh + 6);
-    ctx.lineTo(w / 2 + 6, 378);
-    ctx.lineTo(w / 2 + 40, bh + 6);
-    ctx.closePath();
-    ctx.fillStyle = '#fdfaf0';
-    ctx.fill();
-    ctx.stroke();
-    // clear the seam under the tail
-    ctx.strokeStyle = '#fdfaf0';
-    ctx.lineWidth = 14;
-    ctx.beginPath();
-    ctx.moveTo(w / 2 - 30, bh + 12);
-    ctx.lineTo(w / 2 + 38, bh + 12);
     ctx.stroke();
 
-    // colour strip along the top, in the dish colour
+    // --- tail ------------------------------------------------------------
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 46, pad + bh - 8);
+    ctx.lineTo(w / 2 + 8, 494);
+    ctx.lineTo(w / 2 + 58, pad + bh - 8);
+    ctx.closePath();
+    ctx.fillStyle = '#fffdf6';
+    ctx.fill();
+    ctx.stroke();
+    // erase the seam where the tail meets the panel
+    ctx.strokeStyle = '#fffdf6';
+    ctx.lineWidth = 22;
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 44, pad + bh - 2);
+    ctx.lineTo(w / 2 + 56, pad + bh - 2);
+    ctx.stroke();
+
+    // --- dish colour band down the left edge (reads at a glance) --------
     ctx.save();
-    ctx.beginPath(); ctx.roundRect(14, 12, bw, bh, 48); ctx.clip();
+    ctx.beginPath(); ctx.roundRect(pad, pad, bw, bh, 54); ctx.clip();
     ctx.fillStyle = hex;
-    ctx.fillRect(14, 12, bw, 26);
+    ctx.fillRect(pad, pad, 28, bh);
     ctx.restore();
 
-    drawDishIcon(ctx, dish.icon, w / 2, 142, 78);
+    // --- BIG dish icon ---------------------------------------------------
+    drawDishIcon(ctx, dish.icon, w / 2, 176, 140);
 
-    // NAME — wrapped onto at most two lines, sized to fit inside the bubble
-    // body (which runs from y=12 to y=312). Text must stay above y=300 or the
-    // second line gets clipped by the bubble edge.
-    ctx.fillStyle = '#241a10';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const maxW = bw - 40;
-    const words = dish.name.toUpperCase().split(' ');
-    const widthOf = (ls, s) => {
-      ctx.font = `bold ${s}px "Segoe UI", sans-serif`;
-      return Math.max(...ls.map((t) => ctx.measureText(t).width));
-    };
-    // choose the split + size that fits in maxW
-    let lines = [words.join(' ')];
-    let size = 44;
-    if (widthOf(lines, size) > maxW && words.length > 1) {
-      // try every 2-line split point, keep the widest one that fits
-      let best = null;
-      for (let cut = 1; cut < words.length; cut++) {
-        const cand = [words.slice(0, cut).join(' '), words.slice(cut).join(' ')];
-        const wdt = widthOf(cand, size);
-        if (wdt <= maxW && (!best || wdt > best.w)) best = { lines: cand, w: wdt };
-      }
-      if (best) lines = best.lines;
-    }
-    while (widthOf(lines, size) > maxW && size > 20) {
-      size -= 2;
-    }
-    ctx.font = `bold ${size}px "Segoe UI", sans-serif`;
-    // baseline block sits in the lower third of the bubble
-    const lineH = size + 6;
-    const blockCentre = lines.length > 1 ? 264 : 272;
-    const top = blockCentre - ((lines.length - 1) * lineH) / 2;
-    lines.forEach((ln, i) => ctx.fillText(ln, w / 2, top + i * lineH));
+    // --- SHORT name, as large as it will go ------------------------------
+    const text = (dish.short || dish.name).toUpperCase();
+    drawOutlinedText(ctx, text, w / 2, 340, bw - 44, 116, 60, {
+      halo: 24, ink: 11, fill: '#1b1410',
+    });
 
-    // quantity badge, top-left, only for multi-item orders
+    // --- quantity badge, only for multi-item orders ---------------------
     if (count > 1) {
       ctx.fillStyle = '#c2452f';
-      ctx.beginPath(); ctx.arc(66, 62, 44, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#fdfaf0';
-      ctx.lineWidth = 7;
-      ctx.stroke();
+      ctx.strokeStyle = '#fffdf6';
+      ctx.lineWidth = 14;
+      ctx.beginPath(); ctx.arc(446, 76, 66, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff6e6';
-      ctx.font = 'bold 54px "Segoe UI", sans-serif';
-      ctx.fillText(`×${count}`, 66, 66);
+      ctx.font = `900 76px ${UI_FONT}`;
+      ctx.fillText(`×${count}`, 446, 82);
     }
   });
   bubbleCache.set(key, tex);
@@ -263,14 +248,17 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     arc.position.y = 2.15;
     group.add(ringBase, arc);
 
-    // order bubble
+    // Order bubble. A THREE.Sprite always faces the camera (billboard), and its
+    // scale is re-fitted every frame in update() so it occupies a constant
+    // fraction of the screen no matter how far away the customer is.
     const order = makeOrder(d.order);
     const spriteMat = new THREE.SpriteMaterial({
-      map: bubbleTexture(order[0], 1), transparent: true, depthWrite: false,
+      map: bubbleTexture(order[0], 1), transparent: true, depthWrite: false, depthTest: false,
     });
     const bubble = new THREE.Sprite(spriteMat);
     bubble.scale.set(K.bubbleScale, K.bubbleScale, 1);
-    bubble.position.y = 2.72;
+    bubble.position.y = K.bubbleHeight;
+    bubble.renderOrder = 10; // always draw over people and furniture
     group.add(bubble);
 
     const cust = {
@@ -444,6 +432,33 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
 
   // --- main tick -----------------------------------------------------------
 
+  /**
+   * Keep a customer's order bubble at a CONSTANT size on screen.
+   *
+   * A sprite in three.js always billboards to the camera, so it already faces
+   * the viewer; what it does not do by default is keep its pixel size steady as
+   * it moves nearer or further away. Solving the projection for the sprite's
+   * distance to the camera and rescaling every frame gives an order bubble that
+   * is exactly the same number of pixels tall whether the customer is at the
+   * near table or the far one, and on both a laptop and a phone.
+   */
+  const bubbleWorld = new THREE.Vector3();
+  function fitBubbleToScreen(c) {
+    if (!c.bubble.visible) return;
+    const cam = getCamera();
+    if (!cam) return;
+    c.bubble.getWorldPosition(bubbleWorld);
+    // Phones get a slightly smaller share of the screen so a few seated
+    // customers do not blanket the room; the dish name still reads ~18px.
+    const narrow = window.innerWidth < K.bubbleScreenNarrowAt;
+    const fraction = narrow ? K.bubbleScreenFractionNarrow : K.bubbleScreenFraction;
+    const size = screenSizeFor(fraction, cam.position.distanceTo(bubbleWorld));
+    // Guard: a NaN scale makes a sprite vanish with no error, which is a
+    // miserable thing to debug. Fall back to a sane world size instead.
+    const s = Number.isFinite(size) && size > 0 ? size : K.bubbleScale;
+    c.bubble.scale.set(s, s, 1);
+  }
+
   function update(dt, playerPos) {
     // spawning
     const d = difficulty();
@@ -494,6 +509,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
 
       if (c.state !== 'gone') {
         c.char.update(dt, c.walkSpeedNow, C.player.walkCycle);
+        fitBubbleToScreen(c);
       }
     }
 

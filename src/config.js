@@ -31,7 +31,10 @@ export const CONFIG = {
     followLimits: { x: 5.0, z: 1.6 },
     near: 0.1,
     far: 80,
-    position: [0, 13, 16.2],
+    // Pulled in from [0,13,16.2] so the counter signs and characters read bigger:
+  // 41.4 -> 48.5 screen px per world unit at 1366x768. Still frames the whole
+  // counter, the bin, and both rows of tables with margin either side.
+    position: [0, 11, 13.3],
     target: [0, 1.0, -0.7],
     shakeDecay: 6,        // how fast screen shake bleeds off (per second)
     titleOrbitSpeed: 0.06, // slow drift on the title screen
@@ -76,7 +79,7 @@ lights: {
     color: 0x9c7b52,
     topColor: 0xb99569,
     signText: "MAMI'S BUKA",
-    signY: 2.55,
+    signY: 2.62,
     signZ: -4.5,
   },
 
@@ -121,38 +124,48 @@ lights: {
   dishes: {
     jollof: {
       name: 'Jollof rice', short: 'JOLLOF', icon: 'jollof', price: 8,
-      color: 0xe07a2b, x: -6.0, prop: 'potRice', unlockAtSeconds: 0,
+      color: 0xe07a2b, x: -6.2, prop: 'potRice', unlockAtSeconds: 0,
     },
     egusi: {
       name: 'Egusi + pounded yam', short: 'EGUSI', icon: 'egusi', price: 10,
-      color: 0xc59a5b, x: -3.6, prop: 'potSoup', unlockAtSeconds: 0,
+      color: 0xc59a5b, x: -4.0, prop: 'potSoup', unlockAtSeconds: 0,
     },
     zobo: {
       name: 'Zobo', short: 'ZOBO', icon: 'zobo', price: 5,
-      color: 0xb0203c, x: -1.2, prop: 'jug', unlockAtSeconds: 0,
+      color: 0xb0203c, x: -1.8, prop: 'jug', unlockAtSeconds: 0,
     },
     moimoi: {
       name: 'Moi moi', short: 'MOIMOI', icon: 'moimoi', price: 7,
-      color: 0xcf9a52, x: 1.2, prop: 'panRolls', unlockAtSeconds: 40,
+      color: 0xcf9a52, x: 0.4, prop: 'panRolls', unlockAtSeconds: 40,
     },
     suya: {
       name: 'Suya', short: 'SUYA', icon: 'suya', price: 9,
-      color: 0x8c4a2a, x: 3.6, prop: 'skewers', unlockAtSeconds: 85,
+      color: 0x8c4a2a, x: 2.6, prop: 'skewers', unlockAtSeconds: 85,
     },
     chapman: {
       name: 'Chapman', short: 'CHAPMAN', icon: 'chapman', price: 6,
-      color: 0xd9873a, x: 6.0, prop: 'jug', unlockAtSeconds: 130,
+      color: 0xd9873a, x: 4.8, prop: 'jug', unlockAtSeconds: 130,
     },
   },
 
-  // How close the player must be to grab a dish.
+  // Pickup points are spaced 2.2 apart (not 2.4) and stop short of the right
+  // end so the 2.2-wide sign boards cannot collide with the bin's sign.
   pickupRadius: 1.45,
+
+  // Pickup sign board, in world units. Wide so a one-word dish name can be set
+  // BIG: at 1366x768 a 2.2x1.25 board is 111x63 screen px, and the name is
+  // ~26% of that height => ~16px. The canvas matches the aspect exactly.
+  sign: {
+    size: [2.2, 1.25],
+    badgeSize: [1.15, 0.66],
+  },
 
   // How long a freshly unlocked pickup point flashes its "NEW" badge.
   newBadgeSeconds: 7,
 
-  // The bin at the end of the counter: walk in to bin the top plate.
-  bin: { x: 7.0, z: -4.35, radius: 0.85, cooldown: 0.6 },
+  // The bin at the end of the counter: walk in to bin the top plate. Sits at
+  // x=6.95 with the pickup signs stopping at x=5.9 so the two boards clear.
+  bin: { x: 6.95, z: -4.35, radius: 0.85, cooldown: 0.6, signSize: [1.0, 0.5] },
 
   // ------------------------------------------------------------------ player
   player: {
@@ -187,10 +200,17 @@ lights: {
     wrongDishPenalty: 5.0, // seconds of patience knocked off
     wrongDishCooldown: 0.9,
     happyDelay: 0.5,       // pause before a happy customer stands up
-    // Order bubble world size. The dish NAME has to be readable on a phone
-    // (~90 CSS px across), but with 9 customers seated the bubbles crowd each
-    // other, so this is deliberately not bigger.
-    bubbleScale: 1.3,
+    // Order bubble. fitBubbleToScreen() in customers.js re-fits the sprite every
+    // frame so it occupies this fraction of the VIEWPORT HEIGHT whatever the
+    // camera distance — an order stays readable at the far table and on a
+    // phone. bubbleScale is only the first-frame placeholder.
+    bubbleScreenFraction: 0.16,
+    // Narrow screens get a slightly smaller bubble so a handful of seated
+    // customers do not blanket the room. Order text still lands ~18px.
+    bubbleScreenFractionNarrow: 0.135,
+    bubbleScreenNarrowAt: 620,   // CSS px, matches the ui.js media query
+    bubbleScale: 1.6,
+    bubbleHeight: 2.95,    // world y above the customer's feet
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,

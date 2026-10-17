@@ -128,16 +128,39 @@ function part(geo, material, x = 0, y = 0, z = 0, { cast = true, receive = false
 // Canvas textures (sign, menu board, poster) — drawn in code, no image files
 // ===========================================================================
 
-/** Draw into a canvas and wrap it as a texture. */
+/** Max anisotropy the current renderer supports (1 if nothing is up yet). */
+function maxAniso() {
+  return renderer ? renderer.capabilities.getMaxAnisotropy() : 1;
+}
+
+/**
+ * Draw into a canvas and wrap it as a texture.
+ *
+ * Text clarity rules used everywhere: caller asks for the size it wants to be
+ * seen at on screen, we draw it at >=2x that, we use a bold system font, and we
+ * let the GPU pick the best mip/filter so downscaling stays crisp.
+ *
+ * @param {number} w  canvas width in px (pass the DISPLAYED width * 2+)
+ * @param {number} h  canvas height in px
+ * @param {function(CanvasRenderingContext2D, number, number)} draw
+ */
 export function canvasTexture(w, h, draw) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
+  // Crisp text: round glyph positions so glyphs land on whole pixels.
+  ctx.textRendering = 'geometricPrecision';
   draw(ctx, w, h);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = maxAniso();
+  // Downscale with mipmaps + trilinear, which is what keeps small distant text
+  // legible instead of shimmering.
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
   tex.userData.cached = true;
   return tex;
 }
@@ -165,10 +188,12 @@ function signTexture(text, {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `${font}px "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive`;
-    ctx.fillText(text, w / 2, sub ? h / 2 - 16 : h / 2);
+    ctx.fillText(text, w / 2, sub ? h * 0.36 : h / 2);
     if (sub) {
-      ctx.font = `${Math.round(font * 0.34)}px "Comic Sans MS", "Segoe Print", cursive`;
-      ctx.fillText(sub, w / 2, h / 2 + 30);
+      // Proportional, not a fixed pixel count: a subtitle must never shrink
+      // below the readable floor just because the board got shorter.
+      ctx.font = `${Math.round(font * 0.42)}px "Comic Sans MS", "Segoe Print", cursive`;
+      ctx.fillText(sub, w / 2, h * 0.72);
     }
   });
 }
@@ -264,74 +289,153 @@ export function drawDishIcon(ctx, icon, cx, cy, r) {
 
 const hexCss = (v) => '#' + (v >>> 0).toString(16).slice(-6).padStart(6, '0');
 
+// One bold system stack for every piece of FUNCTIONAL text (pickup signs,
+// order bubbles). Decorative boards keep the handwritten face.
+export const UI_FONT = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+
 /**
- * The sign on a pickup point: dish icon + dish name, in the dish's colour.
- * A locked pickup is drawn dark and crossed out, so it is obvious at a glance
+ * Work out how to draw `text` inside `maxW` while keeping it as TALL as
+ * possible.
+ *
+ * Shrinking the font is the obvious way to fit a long name, but font size is
+ * what sets the on-screen cap height — so shrinking "CHAPMAN" would push it
+ * under the readable-size floor. Instead we squeeze horizontally first and only
+ * fall back to a smaller font if the squeeze gets extreme.
+ *
+ * @returns {{size:number, sx:number}} font size and horizontal scale to apply
+ */
+export function fitTextMetrics(ctx, text, maxW, maxSize, minSize, minSx = 0.7) {
+  let size = maxSize;
+  ctx.font = `900 ${size}px ${UI_FONT}`;
+  const w = ctx.measureText(text).width;
+  if (w <= maxW) return { size, sx: 1 };
+
+  let sx = maxW / w;
+  if (sx < minSx) {
+    // too much squeeze to be honest — start trading height for width
+    sx = minSx;
+    while (size > minSize) {
+      size -= 4;
+      ctx.font = `900 ${size}px ${UI_FONT}`;
+      if (ctx.measureText(text).width * sx <= maxW) break;
+    }
+  }
+  return { size, sx };
+}
+
+/**
+ * Draw bold text centred on (cx, cy), fitted to maxW, with a white halo and a
+ * dark outline so it stays readable over anything.
+ */
+export function drawOutlinedText(ctx, text, cx, cy, maxW, maxSize, minSize, opts = {}) {
+  const { halo = 34, ink = 12, fill = '#1b1410' } = opts;
+  const { size, sx } = fitTextMetrics(ctx, text, maxW, maxSize, minSize);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sx, 1);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${size}px ${UI_FONT}`;
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  // keep the outline visually even after the horizontal squeeze
+  ctx.lineWidth = halo / sx;
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeText(text, 0, 0);
+  ctx.lineWidth = ink / sx;
+  ctx.strokeStyle = fill;
+  ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = fill;
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+  return size;
+}
+
+/**
+ * The sign on a pickup point: a BIG dish icon with the dish name in bold
+ * underneath, dark text on a light panel so it reads at a glance from the
+ * top-down camera. No price — that lives in CONFIG only.
+ *
+ * Locked pickups are drawn washed out with a "SOON" ribbon, so it is obvious
  * that walking in there will not give you anything yet.
+ *
+ * @param {object} dish   CONFIG.dishes[id]
+ * @param {boolean} unlocked
  */
 function pickupSignTexture(dish, unlocked) {
-  return canvasTexture(512, 212, (ctx, w, h) => {
-    const bg = unlocked ? '#2a1c14' : '#191919';
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
+  // Canvas is 1126x640, matching the 2.2x1.25 plane's aspect exactly, and drawn
+  // ~10x the size the sign actually occupies on screen (111x63 px on a
+  // 1366x768 laptop) so the downscale is heavily mipmapped and never blurry.
+  return canvasTexture(1126, 640, (ctx, w, h) => {
+    // --- panel -----------------------------------------------------------
+    ctx.fillStyle = unlocked ? '#fdf6e3' : '#2b2724';
+    roundRect(ctx, 10, 10, w - 20, h - 20, 44);
+    ctx.fill();
 
-    // border in the dish colour, bright when unlocked
-    ctx.strokeStyle = unlocked ? hexCss(dish.color) : '#3d3d3d';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(6, 6, w - 12, h - 12);
+    // --- border: thick, in the dish colour -------------------------------
+    ctx.strokeStyle = unlocked ? hexCss(dish.color) : '#5a524c';
+    ctx.lineWidth = 26;
+    roundRect(ctx, 24, 24, w - 48, h - 48, 32);
+    ctx.stroke();
 
-    // icon panel on the left
-    ctx.fillStyle = unlocked ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)';
-    ctx.beginPath(); ctx.roundRect(16, 16, 150, h - 32, 14); ctx.fill();
-    ctx.save();
-    if (!unlocked) ctx.globalAlpha = 0.3;
-    drawDishIcon(ctx, dish.icon, 91, h / 2, 56);
-    ctx.restore();
+    if (!unlocked) {
+      ctx.fillStyle = 'rgba(30,27,24,0.74)';
+      roundRect(ctx, 36, 36, w - 72, h - 72, 24);
+      ctx.fill();
 
-    // name
-    ctx.fillStyle = unlocked ? '#fdf3d8' : '#5c5c5c';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    let fontSize = 54;
-    ctx.font = `bold ${fontSize}px "Segoe UI", sans-serif`;
-    // shrink to fit rather than overflow the sign
-    while (ctx.measureText(dish.name).width > w - 190 && fontSize > 22) {
-      fontSize -= 2;
-      ctx.font = `bold ${fontSize}px "Segoe UI", sans-serif`;
+      ctx.save();
+      ctx.globalAlpha = 0.34;
+      drawDishIcon(ctx, dish.icon, w / 2, 220, 138);
+      ctx.restore();
+
+      // SOON ribbon. Deliberately just the word: an "unlocks in Ns" line here
+      // rendered at ~4 screen px, and the unlock is announced properly by the
+      // toast + sound when it happens, so the unreadable text is simply cut.
+      ctx.fillStyle = '#f2b134';
+      ctx.strokeStyle = '#3a2200';
+      ctx.lineWidth = 14;
+      roundRect(ctx, w / 2 - 330, 356, 660, 208, 36);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#3a2200';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `900 150px ${UI_FONT}`;
+      ctx.fillText('SOON', w / 2, 462);
+      return;
     }
-    ctx.fillText(dish.name, 182, unlocked ? h / 2 - 14 : h / 2);
 
-    if (unlocked) {
-      ctx.fillStyle = hexCss(dish.color);
-      ctx.font = 'bold 34px "Segoe UI", sans-serif';
-      ctx.fillText(`${dish.price}`, 182, h / 2 + 32);
-      ctx.font = '22px "Segoe UI", sans-serif';
-      ctx.fillStyle = '#c9b28c';
-      ctx.fillText('N', 232, h / 2 + 33);
-    } else {
-      // crossed out, with when it arrives
-      ctx.strokeStyle = '#6b6b6b';
-      ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.moveTo(178, h / 2 + 20); ctx.lineTo(w - 26, h / 2 + 20); ctx.stroke();
-      ctx.fillStyle = '#7a7a7a';
-      ctx.font = '26px "Segoe UI", sans-serif';
-      ctx.fillText(`unlocks ${Math.round(dish.unlockAtSeconds)}s`, 182, h / 2 + 50);
-    }
+    // --- the BIG dish icon ----------------------------------------------
+    drawDishIcon(ctx, dish.icon, w / 2, 218, 138);
+
+    // --- the dish name, as large as it will go ---------------------------
+    const text = (dish.short || dish.name).toUpperCase();
+    drawOutlinedText(ctx, text, w / 2, 470, w - 80, 232, 120, {
+      halo: 36, ink: 13, fill: '#1b1410',
+    });
   });
+}
+
+/** Round-rect path helper (kept local so the sign code reads top-down). */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
 }
 
 /** The little NEW tag that pops on a pickup point when it unlocks. */
 function newBadgeTexture() {
-  return canvasTexture(256, 148, (ctx, w, h) => {
+  return canvasTexture(512, 296, (ctx, w, h) => {
     ctx.fillStyle = '#f2b134';
-    ctx.strokeStyle = '#7a4a06';
-    ctx.lineWidth = 7;
-    ctx.beginPath(); ctx.roundRect(10, 10, w - 20, h - 20, 18); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#5c3604';
+    ctx.lineWidth = 20;
+    roundRect(ctx, 16, 16, w - 32, h - 32, 44);
+    ctx.fill();
+    ctx.stroke();
     ctx.fillStyle = '#3a2200';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 74px "Segoe UI", sans-serif';
-    ctx.fillText('NEW', w / 2, h / 2 + 4);
+    ctx.font = `900 210px ${UI_FONT}`;
+    ctx.fillText('NEW', w / 2, h / 2 + 8);
   });
 }
 
@@ -364,58 +468,55 @@ function floorTexture() {
   });
 }
 
-/** The hand-written menu rail painted along the top of the back wall. */
+/** Back-wall notice board. It carries ONE readable heading rather than a dish
+ *  list: six names side by side could not be made legible at this camera
+ *  distance (see buildCounter), and the counter signs already name every dish.
+ */
 function menuRailTexture() {
-  const items = ['JOLLOF', 'EGUSI + YAM', 'MOI MOI', 'SUYA', 'ZOBO', 'CHAPMAN'];
-  return canvasTexture(1024, 128, (ctx, w, h) => {
+  return canvasTexture(1280, 262, (ctx, w, h) => {
     ctx.fillStyle = '#1d6b4a';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let y = 8; y < h; y += 16) ctx.fillRect(0, y, w, 2);
+    for (let y = 14; y < h; y += 30) ctx.fillRect(0, y, w, 4);
     ctx.strokeStyle = '#fdf3d8';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(6, 6, w - 12, h - 12);
+    ctx.lineWidth = 12;
+    ctx.strokeRect(10, 10, w - 20, h - 20);
     ctx.fillStyle = '#fdf3d8';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const cw = w / items.length;
-    items.forEach((name, i) => {
-      ctx.font = `${i === 1 ? 30 : 36}px "Comic Sans MS", "Segoe Print", cursive`;
-      ctx.fillText(name, cw * (i + 0.5), h / 2 - 8);
-      ctx.font = '26px "Comic Sans MS", "Segoe Print", cursive';
-      ctx.fillText(['300', '400', '200', '350', '150', '150'][i], cw * (i + 0.5), h / 2 + 30);
-      if (i < items.length - 1) {
-        ctx.fillRect(cw * (i + 1) - 1, 20, 2, h - 40);
-      }
-    });
+    ctx.font = '900 150px "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive';
+    ctx.fillText("TODAY'S MENU", w / 2, h / 2);
   });
 }
 
 /** A faded poster for the wall. */
+/** Wall poster. Deliberately just two big words: at the size this card
+ *  actually occupies on screen (~59px tall) anything smaller than ~197px in
+ *  this canvas falls under the readable-size floor, so there is no room for a
+ *  third line or much decoration. */
 function posterTexture() {
-  return canvasTexture(256, 384, (ctx, w, h) => {
+  return canvasTexture(720, 600, (ctx, w, h) => {
     ctx.fillStyle = '#f3e3c3';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#c2452f';
-    ctx.fillRect(0, 0, w, 96);
-    ctx.fillStyle = '#fdf6e3';
-    ctx.font = 'bold 44px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('BUJA', w / 2, 46);
-    ctx.font = '28px "Segoe UI", sans-serif';
-    ctx.fillText('FOOD', w / 2, 82);
-    // a big orange sun + a bowl, drawn with circles
+    ctx.strokeStyle = '#c2452f';
+    ctx.lineWidth = 18;
+    ctx.strokeRect(10, 10, w - 20, h - 20);
+    // a sun disc behind the type, kept clear of the letterforms
     ctx.fillStyle = '#e8913a';
     ctx.beginPath();
-    ctx.arc(w / 2, 200, 74, 0, Math.PI * 2);
+    ctx.arc(w / 2, h / 2, 200, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#8a4a2a';
-    ctx.beginPath();
-    ctx.ellipse(w / 2, 260, 92, 34, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#5a3018';
-    ctx.font = '26px "Segoe UI", sans-serif';
-    ctx.fillText('EAT WELL', w / 2, 336);
+    ctx.fillStyle = '#fdf6e3';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 210px "Segoe UI", system-ui, sans-serif';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 26;
+    ctx.strokeStyle = '#c2452f';
+    ctx.strokeText('BUJA', w / 2, h * 0.34);
+    ctx.fillText('BUJA', w / 2, h * 0.34);
+    ctx.strokeText('FOOD', w / 2, h * 0.66);
+    ctx.fillText('FOOD', w / 2, h * 0.66);
   });
 }
 
@@ -494,6 +595,29 @@ export function setCameraPose(position, target) {
   baseCamTarget.set(target[0], target[1], target[2]);
   camera.position.copy(baseCamPos);
   camera.lookAt(baseCamTarget);
+}
+
+/**
+ * How many world units tall something must be to occupy `fraction` of the
+ * viewport height when it is `distance` away from the camera.
+ *
+ * Used to keep billboards (order bubbles) a CONSTANT size on screen, so a
+ * customer at the far side of the room is as readable as one at the near side,
+ * and the text keeps its size when the window is resized or the portrait
+ * camera kicks in.
+ *
+ * @param {number} fraction of viewport height (0..1)
+ * @param {number} distance from camera to the object, in world units
+ * @returns {number} world-unit size to scale the object to
+ */
+export function screenSizeFor(fraction, distance) {
+  const halfFov = (camera ? camera.fov : 45) * Math.PI / 360;
+  return fraction * 2 * Math.max(0.001, distance) * Math.tan(halfFov);
+}
+
+/** The live camera, for distance maths in other modules. */
+export function getCamera() {
+  return camera;
 }
 
 export function resize() {
@@ -706,10 +830,10 @@ function buildCounter() {
   // (nothing hangs from the ceiling in the middle of the room — it would hide
   // the play area from the camera).
   const signMat = new THREE.MeshLambertMaterial({
-    map: signTexture(K.signText, { w: 640, h: 160, sub: 'FOOD · CHILLS · Jollof daily', font: 74 }),
+    map: signTexture(K.signText, { w: 640, h: 180, font: 96 }),
     flatShading: true,
   });
-  const sign = new THREE.Mesh(planeGeo(3.6, 0.9), signMat);
+  const sign = new THREE.Mesh(planeGeo(3.6, 1.0), signMat);
   sign.position.set(0, K.signY, K.signZ);
   g.add(sign);
   for (const x of [-1.55, 1.55]) {
@@ -717,17 +841,20 @@ function buildCounter() {
       x, (K.signY + K.height + 0.1) / 2 - 0.45, K.signZ, { cast: false }));
   }
 
-  // Hand-painted menu rail high on the back wall. Only a band of wall stays
-  // visible from this camera, so the menu is a wide rail, not a tall board.
-  const rail = new THREE.Mesh(planeGeo(6.0, 0.62),
+  // Back-wall notice board. It carries ONE big readable heading rather than the
+  // old six-item price list: fitting six dish names side by side at this camera
+  // distance needs a ~10:1 board and the words collide long before that. The
+  // dish names live on the counter signs, which are far clearer.
+  const rail = new THREE.Mesh(planeGeo(4.4, 0.9),
     new THREE.MeshLambertMaterial({ map: menuRailTexture(), flatShading: true }));
-  rail.position.set(0, 3.45, -C.room.depth / 2 + 0.04);
+  rail.position.set(-3.4, 3.4, -C.room.depth / 2 + 0.04);
   g.add(rail);
 
-  // Small poster tucked into the back-left corner.
-  const poster = new THREE.Mesh(planeGeo(0.75, 1.15),
+  // Poster, moved right of centre: the HUD's top-left panel covers the
+  // back-left corner of the wall at this camera distance.
+  const poster = new THREE.Mesh(planeGeo(1.5, 1.25),
     new THREE.MeshLambertMaterial({ map: posterTexture(), flatShading: true }));
-  poster.position.set(-7.0, 2.6, -C.room.depth / 2 + 0.04);
+  poster.position.set(5.2, 2.6, -C.room.depth / 2 + 0.04);
   g.add(poster);
 
   // TV sits on the back-right wall (built in buildProps).
@@ -827,16 +954,17 @@ function buildPickups(counterGroup) {
     const steams = buildProp(dish.prop, dish, g, topY);
 
     // Sign on the FRONT of the counter: front-facing and low, so nothing in
-    // the room (pots, the player, customers) ever covers it.
-    const sign = new THREE.Mesh(planeGeo(1.5, 0.62),
+    // the room (pots, the player, customers) ever covers it. Deliberately big —
+    // this is the only thing telling you what walking in here will give you.
+    const sign = new THREE.Mesh(planeGeo(C.sign.size[0], C.sign.size[1]),
       new THREE.MeshLambertMaterial({ map: pickupSignTexture(dish, false), flatShading: true, transparent: true }));
-    sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.04);
+    sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.06);
     g.add(sign);
 
     // "NEW" badge, shown briefly when this pickup unlocks.
-    const badge = new THREE.Mesh(planeGeo(0.52, 0.3),
+    const badge = new THREE.Mesh(planeGeo(C.sign.badgeSize[0], C.sign.badgeSize[1]),
       new THREE.MeshLambertMaterial({ map: newBadgeTexture(), flatShading: true, transparent: true }));
-    badge.position.set(0.66, K.height + 0.06, K.depth / 2 + 0.05);
+    badge.position.set(C.sign.size[0] * 0.42, K.height + 0.28, K.depth / 2 + 0.07);
     badge.visible = false;
     g.add(badge);
 
@@ -881,9 +1009,9 @@ function buildBin(counterGroup) {
   g.add(bag);
 
   // a little sign so it reads as a bin, not a pot
-  const sign = new THREE.Mesh(planeGeo(0.7, 0.34),
-    new THREE.MeshLambertMaterial({ map: signTexture('BIN', { w: 256, h: 128, bg: '#3b3b3b', font: 74 }), flatShading: true, transparent: true }));
-  sign.position.set(0, K.height - 0.3, K.depth / 2 + 0.04);
+  const sign = new THREE.Mesh(planeGeo(B.signSize[0], B.signSize[1]),
+    new THREE.MeshLambertMaterial({ map: signTexture('BIN', { w: 384, h: 192, bg: '#3b3b3b', font: 128 }), flatShading: true, transparent: true }));
+  sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.04);
   g.add(sign);
 
   counterGroup.add(g);

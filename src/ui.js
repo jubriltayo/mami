@@ -49,14 +49,14 @@ canvas { display: block; width: 100%; height: 100%; }
   margin: 0;
 }
 .title-sub {
-  font-size: clamp(14px, 3.6vw, 22px); letter-spacing: .34em;
+  font-size: clamp(17px, 2.8vw, 27px); letter-spacing: .26em;
   color: #ffd9a0; margin: 14px 0 4px; text-transform: uppercase;
 }
 .title-note {
-  font-size: clamp(12px, 3vw, 16px); color: #d8c4a4; max-width: 34ch;
+  font-size: clamp(14px, 2.4vw, 19px); color: #e2d0b2; max-width: 40ch;
   line-height: 1.55; margin: 10px 0 4px;
 }
-.best-line { font-size: 15px; color: #ffe6b8; margin-top: 6px; letter-spacing: .05em; }
+.best-line { font-size: clamp(15px, 1.9vw, 20px); font-weight: 600; color: #ffe6b8; margin-top: 8px; letter-spacing: .03em; }
 
 .btn {
   pointer-events: auto; cursor: pointer;
@@ -72,7 +72,8 @@ canvas { display: block; width: 100%; height: 100%; }
 .btn.ghost {
   background: transparent; color: var(--cream);
   box-shadow: inset 0 0 0 2px rgba(253,243,216,.45);
-  font-size: clamp(12px, 3vw, 15px); padding: 11px 24px; margin-top: 14px;
+  font-size: clamp(14px, 1.9vw, 19px); padding: clamp(11px, 1.4vw, 15px) clamp(20px, 2.4vw, 28px);
+  margin-top: 14px;
 }
 .btn.ghost:active { transform: translateY(2px); }
 
@@ -84,6 +85,10 @@ canvas { display: block; width: 100%; height: 100%; }
   opacity: 0; transition: opacity .3s ease;
 }
 #hud.show { opacity: 1; }
+.hud-left {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: clamp(5px, 0.9vw, 9px);
+}
 .hud-panel {
   background: rgba(12,9,6,.55);
   border: 2px solid rgba(253,243,216,.18);
@@ -91,32 +96,48 @@ canvas { display: block; width: 100%; height: 100%; }
   padding: clamp(5px, 1.6vw, 8px) clamp(7px, 2.2vw, 12px);
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
-.hud-stat { font-size: clamp(15px, 4vw, 22px); font-weight: 800; line-height: 1.15; }
-.hud-label { font-size: clamp(8px, 2.2vw, 10px); letter-spacing: .2em; color: #c9b28c; text-transform: uppercase; }
+/* Readability targets, in CSS px as actually rendered:
+     numbers  >= 18px   |   labels / signs  >= 14px   |   order text >= 16px
+   Every size below is clamp()-ed off the viewport so a 390px phone and a
+   1366px laptop both land above those floors. */
+.hud-stat { font-size: clamp(19px, 3.4vw, 30px); font-weight: 800; line-height: 1.1; }
+.hud-label {
+  font-size: clamp(14px, 1.5vw, 17px); font-weight: 700;
+  letter-spacing: .16em; color: #ddc9a6; text-transform: uppercase;
+}
 .hud-right { display: flex; gap: 8px; align-items: flex-start; }
-#hearts { font-size: clamp(17px, 4.4vw, 24px); letter-spacing: 4px; }
+#hearts { font-size: clamp(22px, 3vw, 32px); letter-spacing: 4px; }
 .heart-off { opacity: .22; }
 
 /* carry stack readout: icon + dish name per plate.
-   Sizes are viewport-relative so the panel does not eat a phone screen. */
-#carry { display: flex; gap: 4px; align-items: stretch; margin-top: 6px; }
+   Sizes are viewport-relative so the panel scales up on a phone without
+   eating the whole screen on a laptop. */
+#carrybar {
+  display: flex; align-items: center; gap: clamp(8px, 1.2vw, 14px);
+  background: rgba(12,9,6,.55);
+  border: 2px solid rgba(253,243,216,.18);
+  border-radius: 12px;
+  padding: clamp(5px, 1.6vw, 8px) clamp(7px, 2.2vw, 12px);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+#carry { display: flex; gap: clamp(4px, 0.8vw, 8px); align-items: stretch; }
 .slot {
-  width: clamp(40px, 12.5vw, 60px);
-  min-height: clamp(36px, 10vw, 44px); border-radius: 8px;
-  border: 2px dashed rgba(253,243,216,.3);
+  width: clamp(58px, 15vw, 92px);
+  min-height: clamp(48px, 12vw, 66px); border-radius: 9px;
+  border: 2px dashed rgba(253,243,216,.34);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1px; padding: 2px;
+  gap: 2px; padding: 3px;
   color: #241505; opacity: .3; overflow: hidden;
 }
 .slot.filled { opacity: 1; border-style: solid; border-color: rgba(0,0,0,.4); }
 .slot.top { box-shadow: 0 0 0 2px var(--gold); }
 .slot .icon {
-  width: clamp(18px, 5.5vw, 25px); height: clamp(18px, 5.5vw, 25px);
+  width: clamp(24px, 6.5vw, 34px); height: clamp(24px, 6.5vw, 34px);
   background-size: contain; background-repeat: no-repeat; background-position: center;
   filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
 }
 .slot .nm {
-  font-size: clamp(6px, 1.9vw, 8px); font-weight: 900; letter-spacing: 0; line-height: 1;
+  font-size: clamp(12px, 2.4vw, 15px); font-weight: 900; letter-spacing: 0; line-height: 1.05;
   text-align: center; max-width: 100%; overflow: hidden;
   white-space: nowrap; text-overflow: ellipsis;
 }
@@ -127,18 +148,19 @@ canvas { display: block; width: 100%; height: 100%; }
 #drop {
   pointer-events: auto; cursor: pointer;
   font-family: var(--font); font-weight: 900;
-  font-size: 11px; letter-spacing: .1em;
+  font-size: clamp(13px, 1.6vw, 17px); letter-spacing: .08em;
   color: #2a1a10; background: #e8dcc4;
-  border: 2px solid rgba(0,0,0,.35); border-radius: 8px;
-  padding: 6px 10px; margin-top: 7px;
-  display: inline-flex; align-items: center; gap: 5px;
+  border: 2px solid rgba(0,0,0,.35); border-radius: 9px;
+  padding: clamp(6px, 0.9vw, 9px) clamp(10px, 1.4vw, 14px);
+  margin-top: clamp(6px, 0.9vw, 9px);
+  display: inline-flex; align-items: center; gap: 6px;
   transition: transform .08s ease, opacity .15s ease;
 }
 #drop:active { transform: translateY(2px); }
-#drop.empty { opacity: .3; }
+#drop.empty { opacity: .35; }
 #drop kbd {
-  font-family: var(--font); font-size: 9px; font-weight: 900;
-  background: rgba(0,0,0,.18); border-radius: 4px; padding: 2px 4px;
+  font-family: var(--font); font-size: clamp(10px, 1.2vw, 13px); font-weight: 900;
+  background: rgba(0,0,0,.18); border-radius: 4px; padding: 2px 5px;
 }
 
 /* mute + hint */
@@ -150,13 +172,16 @@ canvas { display: block; width: 100%; height: 100%; }
   font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 #hint {
-  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
-  background: rgba(12,9,6,.6); border: 2px solid rgba(253,243,216,.16);
-  padding: 9px 16px; border-radius: 20px; font-size: 13px; letter-spacing: .04em;
-  opacity: 0; transition: opacity .25s ease; white-space: nowrap; text-align: center;
+  position: absolute; left: 50%; bottom: clamp(14px, 2.4vw, 22px); transform: translateX(-50%);
+  background: rgba(12,9,6,.68); border: 2px solid rgba(253,243,216,.2);
+  padding: clamp(8px, 1.2vw, 12px) clamp(14px, 2vw, 20px);
+  border-radius: 22px;
+  font-size: clamp(15px, 1.8vw, 21px); font-weight: 600; letter-spacing: .02em;
+  opacity: 0; transition: opacity .25s ease;
+  white-space: nowrap; text-align: center; max-width: 94vw;
 }
 #hint.show { opacity: 1; }
-#hint b { color: var(--gold); }
+#hint b { color: var(--gold); font-weight: 900; }
 
 /* toast: +8, WRONG DISH, etc. */
 #toasts {
@@ -164,8 +189,8 @@ canvas { display: block; width: 100%; height: 100%; }
   display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .toast {
-  font-weight: 900; font-size: clamp(20px, 5.6vw, 34px); letter-spacing: .06em;
-  text-shadow: 0 3px 0 rgba(0,0,0,.5);
+  font-weight: 900; font-size: clamp(26px, 5.6vw, 46px); letter-spacing: .04em;
+  text-shadow: 0 3px 0 rgba(0,0,0,.55), 0 0 14px rgba(0,0,0,.5);
   animation: toastUp 1.05s ease-out forwards;
 }
 .toast.coin { color: var(--gold); }
@@ -198,7 +223,7 @@ canvas { display: block; width: 100%; height: 100%; }
   color: var(--red); text-shadow: 0 4px 0 #5c1a10, 0 12px 30px rgba(0,0,0,.7);
   margin: 0;
 }
-.over-sub { font-size: clamp(13px, 3.2vw, 18px); color: #e8d5b4; letter-spacing: .2em; margin-bottom: 22px; }
+.over-sub { font-size: clamp(15px, 2.2vw, 21px); color: #eddcc0; letter-spacing: .14em; margin-bottom: 22px; }
 .score-grid {
   display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr));
   gap: 12px; margin-bottom: 6px;
@@ -207,11 +232,12 @@ canvas { display: block; width: 100%; height: 100%; }
   background: rgba(253,243,216,.08); border: 2px solid rgba(253,243,216,.18);
   border-radius: 14px; padding: 14px 18px;
 }
-.score-num { font-size: clamp(26px, 7vw, 44px); font-weight: 900; color: var(--gold); line-height: 1; }
-.score-name { font-size: 11px; letter-spacing: .18em; color: #c9b28c; text-transform: uppercase; }
+.score-num { font-size: clamp(32px, 6vw, 52px); font-weight: 900; color: var(--gold); line-height: 1; }
+.score-name { font-size: clamp(13px, 1.5vw, 16px); font-weight: 700; letter-spacing: .16em; color: #dcc8a4; text-transform: uppercase; }
 .newbest {
-  margin-top: 16px; color: var(--gold); font-weight: 800;
-  letter-spacing: .22em; font-size: 14px; animation: pulse 1s ease-in-out infinite alternate;
+  margin-top: 16px; color: var(--gold); font-weight: 900;
+  letter-spacing: .2em; font-size: clamp(16px, 1.8vw, 20px);
+  animation: pulse 1s ease-in-out infinite alternate;
 }
 @keyframes pulse { from { opacity: .6 } to { opacity: 1 } }
 
@@ -219,9 +245,40 @@ canvas { display: block; width: 100%; height: 100%; }
 #paused {
   position: absolute; inset: 0; display: none;
   align-items: center; justify-content: center; flex-direction: column;
-  background: rgba(10,8,6,.72); font-size: 22px; letter-spacing: .3em;
+  background: rgba(10,8,6,.72);
+  font-size: clamp(20px, 3vw, 32px); font-weight: 800; letter-spacing: .24em;
 }
 #paused.show { display: flex; }
+
+/* ------------------------------------------------------------- narrow screens
+   On a phone the counter sits across the top of the screen, so a top-left HUD
+   panel covers the jollof sign. Move the carry bar down to the empty strip
+   under the room, widen the slots so names stop truncating ("CHAP..."), and
+   let the hint wrap instead of running off the right edge. */
+@media (max-width: 620px) {
+  #carrybar {
+    position: fixed;
+    left: clamp(8px, 2vw, 14px);
+    bottom: clamp(58px, 9vh, 76px);
+    gap: 9px;
+    padding: 6px 9px;
+  }
+  #carrybar .slot {
+    width: 94px;
+    min-height: 56px;
+    padding: 3px;
+  }
+  #carrybar .slot .nm { font-size: 13px; letter-spacing: -.2px; }
+  #drop { margin-top: 0; padding: 7px 10px; }
+  #drop kbd { display: none; }
+  #hint {
+    white-space: normal;
+    bottom: clamp(8px, 1.5vh, 14px);
+    font-size: 14px;
+    line-height: 1.3;
+  }
+  .toast { font-size: 30px; }
+}
 `;
 
 const ICONS = { on: '🔊', off: '🔇' };
@@ -293,14 +350,18 @@ export function initUI(handlers) {
     el('span', { text: 'DROP' }), el('kbd', { text: 'Q' }));
   dropBtn.addEventListener('click', () => handlers.onDrop());
 
-  const left = el('div', { class: 'hud-panel' },
+  const statsPanel = el('div', { class: 'hud-panel' },
     el('div', {},
       el('div', { class: 'hud-label', text: 'Coins' }), coinsStat),
     el('div', {},
       el('div', { class: 'hud-label', text: 'Served' }), servedStat),
-    carry,
-    dropBtn,
   );
+
+  // Carry slots + DROP sit in their own bar, stacked under the stats on wide
+  // screens. On a narrow screen the media query below moves this bar down to
+  // the empty strip under the room, so it stops covering the counter.
+  const carryBar = el('div', { id: 'carrybar' }, carry, dropBtn);
+  const left = el('div', { class: 'hud-left' }, statsPanel, carryBar);
   const muteBtn = el('div', { id: 'mute', title: 'Mute' }, ICONS.on);
   muteBtn.addEventListener('click', () => {
     const muted = handlers.onMute();
