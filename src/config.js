@@ -25,14 +25,22 @@ export const CONFIG = {
   // Angled top-down over the whole room. position/target are in world units.
   camera: {
     fov: 42,
-    portraitFov: 48,     // taller screens: zoomed in + camera follows the player
-    portraitOffset: [0, 11.8, 10.8],
-    portraitLookAhead: 1.4,  // bias the view into the room, not the front wall
-    followLimits: { x: 5.0, z: 1.6 },
+    // Portrait is about FITTING, not following. A phone held upright is only
+    // ~0.46 aspect, and fitting the full 16-unit counter width across it costs
+    // a lot of zoom, so there is no room left to pan: the camera sits still and
+    // shows the whole room. This pose was solved so that at 360x800, 390x844
+    // AND 412x915 all six pickup signs, the bin, both rows of chairs and the
+    // player's whole working area (the counter run and the seat aisles) land
+    // inside the frame with margin to spare. The steeper 58-degree pitch also
+    // buys the only thing that separates the counter cards from a back-row
+    // customer's bubble: with a shallower angle they land in the same band.
+    portraitFov: 56,
+    portraitPosition: [0, 32, 18],
+    portraitTarget: [0, 1.0, -1.5],
     near: 0.1,
     far: 80,
     // Pulled in from [0,13,16.2] so the counter signs and characters read bigger:
-  // 41.4 -> 48.5 screen px per world unit at 1366x768. Still frames the whole
+  // 41.4 -> 48.7 screen px per world unit at 1366x768. Still frames the whole
   // counter, the bin, and both rows of tables with margin either side.
     position: [0, 11, 13.3],
     target: [0, 1.0, -0.7],
@@ -158,6 +166,20 @@ lights: {
   sign: {
     size: [2.2, 1.25],
     badgeSize: [1.15, 0.66],
+    // Portrait has to zoom out ~2.5x to fit the whole counter across a phone,
+    // which shrinks everything. A landscape board is then only ~46x29px, and
+    // six of those across 390px is the hard ceiling on how big a dish name can
+    // get on a phone: about 9-14px cap height. The portrait card therefore
+    // spends the whole card on the name with only a small icon, instead of
+    // wasting a tall card on a big icon. Width stays under the 2.2 pickup
+    // spacing so the six cards do not touch.
+    portraitSize: [1.95, 1.5],
+    portraitBadgeSize: [1.0, 0.58],
+    // Sitting the card ON the counter top (bottom edge at 1.05) rather than on
+    // the counter face is what makes it clear a back-row customer's bubble in
+    // portrait. At 1.8 the card band finishes ~6-7px above the bubble at all
+    // three phone sizes; on the counter face it overlapped by 5px.
+    portraitY: 1.8,
   },
 
   // How long a freshly unlocked pickup point flashes its "NEW" badge.
@@ -167,7 +189,10 @@ lights: {
   // x=6.95 with the pickup signs stopping at x=5.9 so the two boards clear.
   // signSize keeps a ~2:1 aspect matching the 384x192 canvas, which is what
   // puts "BIN" at ~14.6px cap height on a 1366x768 laptop.
-  bin: { x: 6.95, z: -4.35, radius: 0.85, cooldown: 0.6, signSize: [1.05, 0.52] },
+  bin: { x: 6.95, z: -4.35, radius: 0.85, cooldown: 0.6, signSize: [1.05, 0.52],
+    // Portrait: the landscape board is only 21x10px on a phone, so BIN gets a
+    // tall card too. 1.3 wide still clears the last pickup sign at x=5.9.
+    portraitSignSize: [1.3, 1.5], portraitY: 1.8 },
 
   // ------------------------------------------------------------------ player
   player: {
@@ -227,6 +252,9 @@ lights: {
     bubbleDeepZ: -1.8,          // seat z at or below this counts as back row
     // Slightly to the side of the head, so a bubble never looks like a hat.
     bubbleOffsetX: 0.35,
+    // Bubbles are nudged this far inside the viewport edge so one standing at
+    // the side of the room is never shaved by the bezel.
+    bubbleEdgeMargin: 6,
     // Tiny delay before a customer can start losing patience, so a fresh
     // arrival isn't punished while they are still walking in.
     patienceGrace: 0.6,

@@ -391,10 +391,11 @@ export function drawOutlinedText(ctx, text, cx, cy, maxW, maxSize, minSize, opts
  * @param {object} dish   CONFIG.dishes[id]
  * @param {boolean} unlocked
  */
-function pickupSignTexture(dish, unlocked) {
+function pickupSignTexture(dish, unlocked, portrait) {
   // Canvas is 1126x640, matching the 2.2x1.25 plane's aspect exactly, and drawn
   // ~10x the size the sign actually occupies on screen (111x63 px on a
   // 1366x768 laptop) so the downscale is heavily mipmapped and never blurry.
+  if (portrait) return pickupSignTexturePortrait(dish, unlocked);
   return canvasTexture(1126, 640, (ctx, w, h) => {
     // --- panel -----------------------------------------------------------
     ctx.fillStyle = unlocked ? '#fdf6e3' : '#2b2724';
@@ -453,6 +454,76 @@ function pickupSignTexture(dish, unlocked) {
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, r);
+}
+
+/**
+ * Portrait variant of the pickup sign: a TALL CARD with the icon above the
+ * name instead of a wide strip beside it.
+ *
+ * Portrait has to zoom out hard to fit a 16-unit counter across a ~0.46 aspect
+ * phone, which shrinks every world-sized thing. A wide board would end up
+ * 43x25px with a ~6px name; spending the counter's HEIGHT instead of its width
+ * gives a 43x39px card whose name can clear ~10px. Long names are fitted by
+ * squeezing horizontally (minSx 0.55) before any font shrink, so CHAPMAN and
+ * MOI MOI keep their cap height.
+ */
+function pickupSignTexturePortrait(dish, unlocked) {
+  // Canvas matches the 1.95x1.5 card's aspect exactly.
+  return canvasTexture(600, 462, (ctx, w, h) => {
+    const pad = 9;
+    roundRect(ctx, pad, pad, w - pad * 2, h - pad * 2, 34);
+    ctx.fillStyle = unlocked ? '#fdf6e3' : '#2b2724';
+    ctx.fill();
+
+    ctx.strokeStyle = unlocked ? hexCss(dish.color) : '#5a524c';
+    ctx.lineWidth = 18;
+    roundRect(ctx, pad + 10, pad + 10, w - (pad + 10) * 2, h - (pad + 10) * 2, 26);
+    ctx.stroke();
+
+    const text = (dish.short || dish.name).toUpperCase();
+
+    if (!unlocked) {
+      ctx.fillStyle = 'rgba(24,21,19,0.88)';
+      roundRect(ctx, pad + 20, pad + 20, w - (pad + 20) * 2, h - (pad + 20) * 2, 20);
+      ctx.fill();
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      drawDishIcon(ctx, dish.icon, w / 2, 165, 72);
+      ctx.restore();
+      ctx.fillStyle = '#5c5348';
+      ctx.strokeStyle = '#2a241f';
+      ctx.lineWidth = 7;
+      roundRect(ctx, w / 2 - 128, 296, 256, 96, 24);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#b3a99a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `800 64px ${UI_FONT}`;
+      ctx.fillText('SOON', w / 2, 345);
+      return;
+    }
+
+    // Small icon up top, then the name given almost the whole card. At ~46px
+    // wide on screen the name is width-limited, so it is squeezed
+    // horizontally (minSx 0.5) long before it shrinks its cap height.
+    drawDishIcon(ctx, dish.icon, w / 2, 112, 72);
+    const { size, sx } = fitTextMetrics(ctx, text, w - 80, 240, 110, 0.5);
+    ctx.save();
+    ctx.translate(w / 2, 322);
+    ctx.scale(sx, 1);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${size}px ${UI_FONT}`;
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.lineWidth = 26 / sx;
+    ctx.strokeStyle = '#1b1410';
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = '#1b1410';
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  });
 }
 
 /** The little NEW tag that pops on a pickup point when it unlocks. */
@@ -578,7 +649,7 @@ let baseCamTarget = new THREE.Vector3();
 let shakeAmount = 0;
 let titleOrbit = 0;
 let portrait = false;                 // tall screens get a closer, following camera
-const followSmooth = new THREE.Vector3();
+
 
 const steamPuffs = [];
 let fan = null;
@@ -653,6 +724,54 @@ export function getCamera() {
   return camera;
 }
 
+/**
+ * Slide a world-space point so its sprite lands inside the viewport.
+ *
+ * A billboard sized as a fixed fraction of the viewport keeps a constant pixel
+ * size, but a customer standing near the edge of the room still projects half
+ * off-screen and the bubble gets shaved by the bezel. This nudges the point
+ * along the camera's right/up axes until the whole box is on screen.
+ *
+ * @param {THREE.Vector3} worldPos    sprite centre, in world space
+ * @param {number} halfW              half the sprite's width in world units
+ * @param {number} halfH              half its height
+ * @param {number} marginPx           keep-out margin from the viewport edge
+ * @returns {THREE.Vector3} the clamped point (a shared temp vector)
+ */
+const clampWorld = new THREE.Vector3();
+const clampProj = new THREE.Vector3();
+const clampRight = new THREE.Vector3();
+const clampUp = new THREE.Vector3();
+export function clampToViewport(worldPos, halfW, halfH, marginPx) {
+  clampWorld.copy(worldPos);
+  if (!camera) return clampWorld;
+  const w = renderer.domElement.clientWidth || window.innerWidth;
+  const h = renderer.domElement.clientHeight || window.innerHeight;
+  camera.updateMatrixWorld();
+  clampProj.copy(clampWorld).project(camera);
+  const tv = Math.tan(camera.fov * Math.PI / 360);
+  const dist = camera.position.distanceTo(worldPos);
+  // How much NDC half the sprite's extent covers.
+  const wNdc = halfW / (dist * tv * camera.aspect);
+  const hNdc = halfH / (dist * tv);
+  const mx = (2 * marginPx) / w;
+  const my = (2 * marginPx) / h;
+  let dxNdc = 0;
+  let dyNdc = 0;
+  if (clampProj.x - wNdc < -1 + mx) dxNdc = -1 + mx - (clampProj.x - wNdc);
+  if (clampProj.x + wNdc > 1 - mx) dxNdc = 1 - mx - (clampProj.x + wNdc);
+  if (clampProj.y - hNdc < -1 + my) dyNdc = -1 + my - (clampProj.y - hNdc);
+  if (clampProj.y + hNdc > 1 - my) dyNdc = 1 - my - (clampProj.y + hNdc);
+  if (dxNdc === 0 && dyNdc === 0) return clampWorld;
+
+  // Convert the NDC nudge back into world space along the camera's axes.
+  clampRight.setFromMatrixColumn(camera.matrixWorld, 0);
+  clampUp.setFromMatrixColumn(camera.matrixWorld, 1);
+  clampWorld.addScaledVector(clampRight, dxNdc * dist * tv * camera.aspect);
+  clampWorld.addScaledVector(clampUp, dyNdc * dist * tv);
+  return clampWorld;
+}
+
 export function resize() {
   if (!renderer) return;
   const w = window.innerWidth;
@@ -660,12 +779,13 @@ export function resize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, C.renderer.pixelRatioCap));
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  // A phone in portrait is far too narrow to see 16m of room at once, so we
-  // zoom in and let the camera follow the player instead.
-  portrait = h > w * 1.1;
+  // Portrait has to fit the whole 16-unit counter across a ~0.46 aspect
+  // screen, which means a fixed, zoomed-out pose rather than a following one.
+  const isPortrait = h > w * 1.1;
+  portrait = isPortrait;
   camera.fov = portrait ? C.camera.portraitFov : C.camera.fov;
   camera.updateProjectionMatrix();
-  if (portrait) followSmooth.set(0, 0, 0);
+  applySignLayout(isPortrait);
 }
 
 /** Render one frame. */
@@ -990,7 +1110,7 @@ function buildPickups(counterGroup) {
     // the room (pots, the player, customers) ever covers it. Deliberately big —
     // this is the only thing telling you what walking in here will give you.
     const sign = new THREE.Mesh(planeGeo(C.sign.size[0], C.sign.size[1]),
-      new THREE.MeshLambertMaterial({ map: pickupSignTexture(dish, false), flatShading: true, transparent: true }));
+      new THREE.MeshLambertMaterial({ map: pickupSignTexture(dish, false, false), flatShading: true, transparent: true }));
     sign.position.set(0, K.height - 0.42, K.depth / 2 + 0.06);
     // The material is transparent, so it lands in the same render list as the
     // order bubbles. Sorting it AFTER them means a customer's bubble can never
@@ -1019,6 +1139,7 @@ function buildPickups(counterGroup) {
       z: K.z + K.depth / 2 + 0.15,
       signMesh: sign,
       badgeMesh: badge,
+      portrait: false,     // which sign layout is currently applied
       badgeTime: 0,
       unlocked: dish.unlockAtSeconds <= 0,
       unlockAt: dish.unlockAtSeconds,
@@ -1055,7 +1176,7 @@ function buildBin(counterGroup) {
   g.add(sign);
 
   counterGroup.add(g);
-  world.bin = { x: B.x, z: B.z, radius: B.radius, cooldown: 0, group: g };
+  world.bin = { x: B.x, z: B.z, radius: B.radius, cooldown: 0, group: g, signMesh: sign };
 }
 
 // ===========================================================================
@@ -1260,13 +1381,17 @@ export function updatePickupUnlocks(elapsed) {
   for (const p of world.pickups) {
     if (!p.unlocked && elapsed >= p.unlockAt) {
       p.unlocked = true;
-      p.signMesh.material.map = pickupSignTexture(C.dishes[p.dishId], true);
+      p.signMesh.material.map = pickupSignTexture(C.dishes[p.dishId], true, p.portrait);
       p.signMesh.material.needsUpdate = true;
       p.badgeTime = C.newBadgeSeconds;
       p.badgeMesh.visible = true;
       // light the prop up so the unlock is obvious across the room
       p.signMesh.material.emissive = new THREE.Color(C.dishes[p.dishId].color);
-      p.signMesh.material.emissiveIntensity = 0.28;
+      // Barely on. The emissive tints the whole card, and the dish names are
+      // dark ink on a light card — at any real strength that wash costs
+      // contrast, badly so on the small portrait card. The card flipping from
+      // dark to cream, plus the NEW badge and the toast, already announce it.
+      p.signMesh.material.emissiveIntensity = 0.06;
       fresh.push(p);
     } else if (p.badgeTime > 0) {
       p.badgeTime -= 1 / 60;
@@ -1283,10 +1408,58 @@ export function resetPickups() {
     p.unlocked = dish.unlockAtSeconds <= 0;
     p.badgeTime = 0;
     p.badgeMesh.visible = false;
-    p.signMesh.material.map = pickupSignTexture(dish, p.unlocked);
+    p.signMesh.material.map = pickupSignTexture(dish, p.unlocked, p.portrait);
     p.signMesh.material.emissive.setHex(0x000000);
     p.signMesh.material.emissiveIntensity = 1;
     p.signMesh.material.needsUpdate = true;
+  }
+}
+
+/**
+ * Swap every counter sign between the landscape board and the tall portrait
+ * card. Portrait has to zoom right out to fit the counter across a phone, so a
+ * wide board would shrink the dish name to ~6px; the portrait card spends the
+ * counter's height instead and keeps it around 10px.
+ *
+ * Called on every resize, but only rebuilds when the orientation actually
+ * flips, so dragging a window around costs nothing.
+ *
+ * @param {boolean} isPortrait
+ */
+export function applySignLayout(isPortrait) {
+  if (!world.pickups.length) return;
+  if (world.pickups[0].portrait === isPortrait) return;
+
+  const K = C.counter;
+  const size = isPortrait ? C.sign.portraitSize : C.sign.size;
+  const badgeSize = isPortrait ? C.sign.portraitBadgeSize : C.sign.badgeSize;
+  const signY = isPortrait ? C.sign.portraitY : K.height - 0.42;
+
+  for (const p of world.pickups) {
+    const dish = C.dishes[p.dishId];
+    p.portrait = isPortrait;
+    p.signMesh.geometry.dispose();
+    p.signMesh.geometry = planeGeo(size[0], size[1]);
+    p.signMesh.material.map = pickupSignTexture(dish, p.unlocked, isPortrait);
+    p.signMesh.material.needsUpdate = true;
+    p.signMesh.position.y = signY;
+    p.badgeMesh.geometry.dispose();
+    p.badgeMesh.geometry = planeGeo(badgeSize[0], badgeSize[1]);
+    p.badgeMesh.position.set(size[0] * 0.42, signY + size[1] * 0.42, K.depth / 2 + 0.07);
+  }
+
+  if (world.bin && world.bin.signMesh) {
+    const bs = isPortrait ? C.bin.portraitSignSize : C.bin.signSize;
+    const by = isPortrait ? C.bin.portraitY : K.height - 0.42;
+    const bsMesh = world.bin.signMesh;
+    bsMesh.geometry.dispose();
+    bsMesh.geometry = planeGeo(bs[0], bs[1]);
+    bsMesh.material.map = signTexture('BIN', {
+      w: isPortrait ? 384 : 384, h: Math.round((384 * bs[1]) / bs[0]),
+      bg: '#3b3b3b', font: isPortrait ? 150 : 150, margin: 0.12,
+    });
+    bsMesh.material.needsUpdate = true;
+    bsMesh.position.y = by;
   }
 }
 
@@ -1342,23 +1515,20 @@ export function update(dt, elapsed, orbiting = false, follow = null) {
   const ox = orbiting ? Math.sin(titleOrbit) * 2.6 : 0;
   const oz = orbiting ? Math.cos(titleOrbit * 0.7) * 1.2 : 0;
 
-  // Portrait: slide the camera along with the player so the room stays legible.
-  if (portrait) {
-    const off = C.camera.portraitOffset;
-    if (follow && !orbiting) {
-      const L = C.camera.followLimits;
-      followSmooth.lerp(follow, Math.min(1, dt * 4));
-      baseCamTarget.set(
-        Math.max(-L.x, Math.min(L.x, followSmooth.x)),
-        0.9,
-        Math.max(-L.z, Math.min(L.z, followSmooth.z + C.camera.portraitLookAhead)),
-      );
-      baseCamPos.set(baseCamTarget.x + off[0], off[1], baseCamTarget.z + off[2]);
-    } else {
-      // Title / game over: a high, centred look at the whole counter.
-      baseCamTarget.set(0, 1.1, -1.2);
-      baseCamPos.set(0, 15.5, 14.5);
-    }
+  // Camera pose is derived from the CURRENT orientation every frame, in both
+  // directions. Setting only the portrait branch (and leaving landscape to the
+  // one-off setCameraPose call) meant that rotating a phone back to landscape
+  // kept the zoomed-out portrait pose forever.
+  //
+  // Portrait is a fixed, zoomed-out pose that fits the whole counter. The old
+  // portrait camera followed the player, which meant you could never see the
+  // jollof pot without walking to it — and on a phone the counter ran off both
+  // edges. Now it just shows the room.
+  {
+    const p = portrait ? C.camera.portraitPosition : C.camera.position;
+    const t = portrait ? C.camera.portraitTarget : C.camera.target;
+    baseCamPos.set(p[0], p[1], p[2]);
+    baseCamTarget.set(t[0], t[1], t[2]);
   }
 
   if (shakeAmount > 0.0001) {

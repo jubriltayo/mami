@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import {
   world, canvasTexture, sphGeo, cylGeo, mat, drawDishIcon,
-  screenSizeFor, getCamera, drawOutlinedText,
+  screenSizeFor, getCamera, drawOutlinedText, clampToViewport,
 } from './scene.js';
 import { buildCharacter, randomStyle } from './character.js';
 
@@ -493,6 +493,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
    * right towards the left.
    */
   const bubbleWorld = new THREE.Vector3();
+  const bubbleLocal = new THREE.Vector3();
   function fitBillboard(c) {
     if (!c.bubble.visible) return;
     const cam = getCamera();
@@ -512,7 +513,15 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
     const y = c.group.position.z <= K.bubbleDeepZ
       ? K.bubbleHeightDeep
       : K.bubbleHeightShallow;
-    c.bubble.position.y = y;
+
+    // Keep the whole bubble inside the viewport. A constant-pixel-size sprite
+    // still gets shaved against the bezel when its owner stands near the edge
+    // of the room, so nudge it in along the camera's right/up axes.
+    bubbleLocal.set(K.bubbleOffsetX, y, 0);
+    c.group.localToWorld(bubbleLocal);
+    const safe = clampToViewport(bubbleLocal, (h * aspect) / 2, h / 2, K.bubbleEdgeMargin);
+    c.group.worldToLocal(safe);
+    c.bubble.position.set(safe.x, safe.y, 0);
     c.bubble.scale.set(h * aspect, h, 1);
 
     if (c.bar.visible) {
@@ -523,7 +532,7 @@ export function createCustomerSystem({ scene, difficulty, orderPool, callbacks }
       // units (negative = below centre), so it is ADDED to the bubble's height.
       // Pin the bar's LEFT edge too, so the fill drains from right to left.
       c.bar.position.set(
-        K.bubbleOffsetX - bwFull / 2 + bwFull * f / 2,
+        safe.x - bwFull / 2 + bwFull * f / 2,
         y + h * BAR_DROP,
         0,
       );
